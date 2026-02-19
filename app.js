@@ -8,6 +8,15 @@
   const loadStatus = document.getElementById('loadStatus');
 
   const pills = [...document.querySelectorAll('.pill[data-range]')];
+  const periodStart = document.getElementById('periodStart');
+  const periodEnd = document.getElementById('periodEnd');
+  const periodEndGroup = document.getElementById('periodEndGroup');
+  const periodHint = document.getElementById('periodHint');
+  const btnPrev = document.getElementById('btnPrev');
+  const btnNext = document.getElementById('btnNext');
+  const toggleZoom = document.getElementById('toggleZoom');
+  const togglePan = document.getElementById('togglePan');
+  const btnResetZoom = document.getElementById('btnResetZoom');
   const togglePromo = document.getElementById('togglePromo');
   const toggleFailed = document.getElementById('toggleFailed');
 
@@ -28,7 +37,9 @@
   const state = {
     paymentsByTxnId: new Map(),  // txnId -> normalized payment row
     tripsByRideId: new Map(),    // rideId -> normalized trip row
-    lastRange: 'thisWeek',
+    lastRange: 'week',
+    periodStartBD: null,         // 'YYYY-MM-DD'
+    periodEndBD: null,           // 'YYYY-MM-DD' (for custom)
     chart: null,
   };
 
@@ -163,6 +174,12 @@
     const rideIdRaw = rideCol ? String(row[rideCol] ?? '').trim() : '';
     const rideId = rideIdRaw || null;
 
+    const note = noteCol ? String(row[noteCol] ?? '').trim() : '';
+
+    // so.payout は報酬支払（振込）で売上ではないため除外
+    const hay = `${txnId} ${rideIdRaw} ${note}`.toLowerCase();
+    if (hay.includes('so.payout')) return null;
+
     const amount = amtCol ? toNumber(row[amtCol]) : 0;
     const paymentTime = timeCol ? parseDateTime(row[timeCol]) : null;
 
@@ -171,7 +188,7 @@
       rideId,
       amount,
       paymentTime,
-      note: noteCol ? String(row[noteCol] ?? '').trim() : '',
+      note,
     };
   };
 
@@ -353,59 +370,169 @@
   };
 
   // ====== Range filter ======
+  const clampWeekStartMondayStr = (bdStr) => {
+    const d = dateFromBusinessStr(bdStr);
+    if (!d) return null;
+    const start = startOfWeekMonday(d);
+    return yyyyMmDd(start);
+  };
+
+  const clampMonthStartStr = (bdStr) => {
+    const d = dateFromBusinessStr(bdStr);
+    if (!d) return null;
+    d.setDate(1);
+    d.setHours(0,0,0,0);
+    return yyyyMmDd(d);
+  };
+
+  const addMonths = (d, months) => {
+    const x = new Date(d);
+    x.setMonth(x.getMonth() + months);
+    return x;
+  };
+
+  const getMaxBusinessDate = (events) => {
+    if (!events.length) return null;
+    let maxBD = events[0].businessDate;
+    for (const e of events) if (e.businessDate > maxBD) maxBD = e.businessDate;
+    return maxBD;
+  };
+
+  const ensureDefaultPeriodDates = (events) => {
+    const maxBD = getMaxBusinessDate(events);
+    if (!maxBD) return;
+
+    if (!state.periodStartBD) {
+      if (state.lastRange === 'day') state.periodStartBD = maxBD;
+      else if (state.lastRange === 'week') state.periodStartBD = clampWeekStartMondayStr(maxBD);
+      else if (state.lastRange === 'month') state.periodStartBD = clampMonthStartStr(maxBD);
+      else if (state.lastRange === 'custom') {
+        const maxD = dateFromBusinessStr(maxBD);
+        const startD = addDays(maxD, -6);
+        state.periodStartBD = yyyyMmDd(startD);
+        state.periodEndBD = maxBD;
+      } else {
+        state.periodStartBD = maxBD;
+      }
+    }
+
+    if (state.lastRange === 'custom' && !state.periodEndBD) state.periodEndBD = maxBD;
+
+    periodStart.value = state.periodStartBD || '';
+    if (state.lastRange === 'custom') periodEnd.value = state.periodEndBD || '';
+  };
+
+  const updatePeriodUI = (eventsAll) => {
+    ensureDefaultPeriodDates(eventsAll);
+    const isCustom = state.lastRange === 'custom';
+    periodEndGroup.style.display = isCustom ? '' : 'none';
+
+    let hint = '';
+    if (state.lastRange === 'day') hint = '日次: 指定した開始日のみ表示（業務日付: 4:00切替）';
+    if (state.lastRange === 'week') hint = '週次: 月曜始まりの1週間を表示（開始日は自動で月曜に補正）';
+    if (state.lastRange === 'month') hint = '月次: 1日始まりの1か月を表示（開始日は自動で1日に補正）';
+    if (state.lastRange === 'custom') hint = '期間指定: 開始日〜終了日（両端含む）を表示';
+    if (state.lastRange === 'all') hint = '全期間を表示';
+    periodHint.textContent = hint;
+
+    const disabled = (state.lastRange === 'all');
+    btnPrev.disabled = disabled;
+    btnNext.disabled = disabled;
+  };
+
   const getRangeBounds = (events, rangeKey) => {
     if (!events.length) return null;
 
-    // max business date
-    let maxBD = events[events.length - 1].businessDate;
-    // because events are sorted by time, last event has max time, but business date may not be max if time missing; safe enough
-    // We'll compute max explicitly
-    for (const e of events) {
-      if (e.businessDate > maxBD) maxBD = e.businessDate;
-    }
+    const maxBD = getMaxBusinessDate(events);
     const maxDate = dateFromBusinessStr(maxBD);
     if (!maxDate) return null;
 
-    let start = null;
-    let end = addDays(maxDate, 1); // exclusive upper bound
+    if (rangeKey === 'all') return { start: null, end: null, maxDate };
 
-    switch (rangeKey) {
-      case 'day':
-        start = maxDate;
-        break;
-      case 'thisWeek':
-        start = startOfWeekMonday(maxDate);
-        break;
-      case 'last7':
-        start = addDays(maxDate, -6);
-        break;
-      case 'thisMonth':
-        start = startOfMonth(maxDate);
-        break;
-      case 'all':
-      default:
-        start = null;
-        end = null;
-        break;
+    const startBD = state.periodStartBD || maxBD;
+    const startDate = dateFromBusinessStr(startBD);
+    if (!startDate) return null;
+
+    let start = null;
+    let end = null;
+
+    if (rangeKey === 'day') {
+      start = startDate;
+      end = addDays(start, 1);
+    } else if (rangeKey === 'week') {
+      const mondayBD = clampWeekStartMondayStr(startBD) || clampWeekStartMondayStr(maxBD);
+      state.periodStartBD = mondayBD;
+      periodStart.value = mondayBD || '';
+      start = dateFromBusinessStr(mondayBD);
+      end = addDays(start, 7);
+    } else if (rangeKey === 'month') {
+      const firstBD = clampMonthStartStr(startBD) || clampMonthStartStr(maxBD);
+      state.periodStartBD = firstBD;
+      periodStart.value = firstBD || '';
+      start = dateFromBusinessStr(firstBD);
+      end = addMonths(start, 1);
+    } else if (rangeKey === 'custom') {
+      const sBD = state.periodStartBD || maxBD;
+      const eBD = state.periodEndBD || maxBD;
+      const sD = dateFromBusinessStr(sBD);
+      const eD = dateFromBusinessStr(eBD);
+      if (!sD || !eD) return null;
+      start = sD;
+      end = addDays(eD, 1); // inclusive end
     }
 
     return { start, end, maxDate };
   };
 
   const filterEventsByRange = (events, rangeKey) => {
-    if (rangeKey === 'all') return events;
     const b = getRangeBounds(events, rangeKey);
     if (!b) return [];
     const { start, end } = b;
+    if (!start && !end) return events;
 
     return events.filter(e => {
       const d = dateFromBusinessStr(e.businessDate);
       if (!d) return false;
       if (start && d < start) return false;
-      if (end && d >= end) return false; // end exclusive
+      if (end && d >= end) return false;
       return true;
     });
   };
+
+  const stepPeriod = (dir) => {
+    const key = state.lastRange;
+    if (key === 'all') return;
+
+    const s = state.periodStartBD;
+    if (!s) return;
+    const d = dateFromBusinessStr(s);
+    if (!d) return;
+
+    if (key === 'day') {
+      state.periodStartBD = yyyyMmDd(addDays(d, dir));
+    } else if (key === 'week') {
+      const monday = startOfWeekMonday(d);
+      state.periodStartBD = yyyyMmDd(addDays(monday, dir * 7));
+    } else if (key === 'month') {
+      d.setDate(1);
+      state.periodStartBD = yyyyMmDd(addMonths(d, dir));
+    } else if (key === 'custom') {
+      const e = state.periodEndBD;
+      if (!e) return;
+      const ed = dateFromBusinessStr(e);
+      if (!ed) return;
+      const len = Math.round((ed.getTime() - d.getTime()) / (24*60*60*1000));
+      const ns = addDays(d, dir * (len + 1));
+      const ne = addDays(ns, len);
+      state.periodStartBD = yyyyMmDd(ns);
+      state.periodEndBD = yyyyMmDd(ne);
+      periodEnd.value = state.periodEndBD || '';
+    }
+
+    periodStart.value = state.periodStartBD || '';
+    refreshAll();
+  };
+
 
   // ====== Chart ======
   const buildCumulativeSeries = (events) => {
@@ -430,6 +557,10 @@
   const ensureChart = () => {
     if (state.chart) return state.chart;
     const ctx = document.getElementById('chart');
+
+        // chartjs-plugin-zoom (UMD) register
+    const zoomPlugin = window.ChartZoom || window.chartjsPluginZoom || window['chartjs-plugin-zoom'];
+    if (zoomPlugin) Chart.register(zoomPlugin);
 
     state.chart = new Chart(ctx, {
       type: 'line',
@@ -461,6 +592,10 @@
         interaction: { mode: 'index', intersect: false },
         plugins: {
           decimation: { enabled: true, algorithm: 'min-max' },
+          zoom: {
+            zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
+            pan: { enabled: true, mode: 'x', modifierKey: 'shift' }
+          },
           legend: { display: true, labels: { color: '#e8eef7' } },
           tooltip: {
             callbacks: {
@@ -641,7 +776,8 @@
   // ====== Main refresh ======
   const refreshAll = () => {
     const eventsAll = buildEvents();
-    const rangeKey = state.lastRange || 'thisWeek';
+    const rangeKey = state.lastRange || 'week';
+    updatePeriodUI(eventsAll);
     const events = filterEventsByRange(eventsAll, rangeKey);
 
     updateStats(events);
@@ -653,6 +789,10 @@
   const setActiveRange = (rangeKey) => {
     state.lastRange = rangeKey;
     for (const b of pills) b.classList.toggle('is-active', b.dataset.range === rangeKey);
+
+    if (rangeKey === 'week' && state.periodStartBD) state.periodStartBD = clampWeekStartMondayStr(state.periodStartBD);
+    if (rangeKey === 'month' && state.periodStartBD) state.periodStartBD = clampMonthStartStr(state.periodStartBD);
+
     refreshAll();
   };
 
@@ -678,6 +818,48 @@
   // ====== UI bindings ======
   pills.forEach(b => b.addEventListener('click', () => setActiveRange(b.dataset.range)));
 
+  periodStart.addEventListener('change', () => {
+    const v = periodStart.value;
+    if (!v) return;
+    state.periodStartBD = v;
+    if (state.lastRange === 'week') state.periodStartBD = clampWeekStartMondayStr(v);
+    if (state.lastRange === 'month') state.periodStartBD = clampMonthStartStr(v);
+    periodStart.value = state.periodStartBD || v;
+    refreshAll();
+  });
+
+  periodEnd.addEventListener('change', () => {
+    const v = periodEnd.value;
+    if (!v) return;
+    state.periodEndBD = v;
+    refreshAll();
+  });
+
+  btnPrev.addEventListener('click', () => stepPeriod(-1));
+  btnNext.addEventListener('click', () => stepPeriod(1));
+
+  toggleZoom.addEventListener('change', () => {
+    if (!state.chart) return;
+    const z = state.chart.options.plugins && state.chart.options.plugins.zoom;
+    if (!z) return;
+    z.zoom.wheel.enabled = !!toggleZoom.checked;
+    z.zoom.pinch.enabled = !!toggleZoom.checked;
+    state.chart.update('none');
+  });
+
+  togglePan.addEventListener('change', () => {
+    if (!state.chart) return;
+    const z = state.chart.options.plugins && state.chart.options.plugins.zoom;
+    if (!z) return;
+    z.pan.enabled = !!togglePan.checked;
+    state.chart.update('none');
+  });
+
+  btnResetZoom.addEventListener('click', () => {
+    if (!state.chart) return;
+    if (typeof state.chart.resetZoom === 'function') state.chart.resetZoom();
+  });
+
   togglePromo.addEventListener('change', () => refreshAll());
   toggleFailed.addEventListener('change', () => refreshAll());
   searchBox.addEventListener('input', () => refreshAll());
@@ -686,6 +868,8 @@
   btnClear.addEventListener('click', () => {
     state.paymentsByTxnId.clear();
     state.tripsByRideId.clear();
+    state.periodStartBD = null;
+    state.periodEndBD = null;
     loadStatus.textContent = '未読み込み';
     refreshAll();
   });
@@ -725,5 +909,5 @@
   });
 
   // ====== Init ======
-  setActiveRange('thisWeek');
+  setActiveRange('week');
 })();

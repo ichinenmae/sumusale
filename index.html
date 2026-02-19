@@ -9,6 +9,7 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <!-- Chart -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/date-fns@2.30.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
 </head>
@@ -32,6 +33,35 @@
           <div>対応: <code>trip_activity</code> / <code>payments_order</code>（複数同時OK / 追加ドロップでマージ）</div>
           <div class="muted">例: <code>...-trip_activity-....csv</code>, <code>...-payments_order-....csv</code></div>
         </div>
+        <div class="period" id="periodControls">
+          <div class="period__row">
+            <div class="period__group" id="periodStartGroup">
+              <label class="period__label" for="periodStart">開始日</label>
+              <input id="periodStart" class="date" type="date" />
+            </div>
+            <div class="period__group" id="periodEndGroup" style="display:none">
+              <label class="period__label" for="periodEnd">終了日</label>
+              <input id="periodEnd" class="date" type="date" />
+            </div>
+            <div class="period__spacer"></div>
+            <button id="btnPrev" class="btn btn--secondary" type="button">前</button>
+            <button id="btnNext" class="btn btn--secondary" type="button">次</button>
+          </div>
+
+          <div class="period__row period__row--zoom">
+            <label class="toggle">
+              <input id="toggleZoom" type="checkbox" checked />
+              <span>ズーム有効（ホイール/ピンチ）</span>
+            </label>
+            <label class="toggle">
+              <input id="togglePan" type="checkbox" checked />
+              <span>パン有効（Shift+ドラッグ）</span>
+            </label>
+            <button id="btnResetZoom" class="btn btn--secondary" type="button">ズームをリセット</button>
+          </div>
+
+          <div class="muted small" id="periodHint"></div>
+        </div>
         <input id="filePicker" type="file" accept=".csv,text/csv" multiple />
       </div>
       <div class="dropzone__status" id="loadStatus">
@@ -44,10 +74,10 @@
         <div class="card__header">
           <h2>表示期間</h2>
           <div class="filters">
-            <button class="pill is-active" data-range="day">1日</button>
-            <button class="pill" data-range="thisWeek">今週（月曜始まり）</button>
-            <button class="pill" data-range="last7">直近7日間</button>
-            <button class="pill" data-range="thisMonth">今月</button>
+            <button class="pill is-active" data-range="day">日次</button>
+            <button class="pill" data-range="week">週次（月曜始まり）</button>
+            <button class="pill" data-range="month">月次（1日始まり）</button>
+            <button class="pill" data-range="custom">期間指定</button>
             <button class="pill" data-range="all">全期間</button>
           </div>
         </div>
