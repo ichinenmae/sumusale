@@ -120,7 +120,7 @@ a{color:var(--accent);}
   margin: 8px 0 12px;
 }
 @media (min-width: 980px){
-  .stats{grid-template-columns: repeat(4, minmax(0,1fr));}
+  .stats{grid-template-columns: repeat(6, minmax(0,1fr));}
 }
 .stat{
   background:#0c1320;

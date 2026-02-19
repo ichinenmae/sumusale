@@ -18,12 +18,16 @@
   const togglePan = document.getElementById('togglePan');
   const btnResetZoom = document.getElementById('btnResetZoom');
   const togglePromo = document.getElementById('togglePromo');
+  const toggleOmitIdle = document.getElementById('toggleOmitIdle');
   const toggleFailed = document.getElementById('toggleFailed');
 
   const statBase = document.getElementById('statBase');
   const statPromo = document.getElementById('statPromo');
   const statTotal = document.getElementById('statTotal');
   const statTrips = document.getElementById('statTrips');
+  const statActiveHours = document.getElementById('statActiveHours');
+  const statHourly = document.getElementById('statHourly');
+  const statTripsPerHour = document.getElementById('statTripsPerHour');
 
   const searchBox = document.getElementById('searchBox');
   const sortSelect = document.getElementById('sortSelect');
@@ -79,6 +83,18 @@
     }
     const d = new Date(s);
     return Number.isNaN(d.getTime()) ? null : d;
+  };
+
+  const storeNameFromAddress = (addr) => {
+    if (!addr) return '';
+    const s = String(addr).trim();
+    if (!s) return '';
+    // 典型: '店名, 日本、〒...' の形式
+    const parts = s.split(/,|，/);
+    const head = (parts[0] || '').trim();
+    // 先頭が日本/郵便などの場合は店名なし扱い
+    if (head.startsWith('日本') || head.startsWith('〒')) return '';
+    return head;
   };
 
   const yyyyMmDd = (d) => {
@@ -194,6 +210,7 @@
 
   const normalizeTripRow = (row, headers) => {
     const rideCol = findCol(headers, ['乗車の UUID', '乗車ID', 'Trip UUID', 'ride id']);
+    const requestCol = findCol(headers, ['乗車のリクエスト時間', '依頼時間', 'request']);
     const dropoffCol = findCol(headers, ['乗車の降車時間', '降車時間', 'dropoff']);
     const pickupCol = findCol(headers, ['乗車場所の住所', 'pickup']);
     const dropoffAddrCol = findCol(headers, ['降車場所の住所', 'dropoff address']);
@@ -202,10 +219,12 @@
     const rideId = rideCol ? String(row[rideCol] ?? '').trim() : '';
     if (!rideId) return null;
 
+    const requestTime = requestCol ? parseDateTime(row[requestCol]) : null;
     const dropoffTime = dropoffCol ? parseDateTime(row[dropoffCol]) : null;
 
     return {
       rideId,
+      requestTime,
       dropoffTime,
       pickupAddr: pickupCol ? String(row[pickupCol] ?? '').trim() : '',
       dropoffAddr: dropoffAddrCol ? String(row[dropoffAddrCol] ?? '').trim() : '',
@@ -313,11 +332,16 @@
       events.push({
         kind: 'base',
         time: eventTime,
+        requestTime: t.requestTime || null,
+        dropoffTime: t.dropoffTime || null,
+        pickupAddr: t.pickupAddr || '',
+        pickupName: storeNameFromAddress(t.pickupAddr || ''),
+        dropoffAddr: t.dropoffAddr || '',
         businessDate: businessDateStr(eventTime),
         amount,
         rideId,
         txnIds: pay ? pay.txnIds : [],
-        place: t.dropoffAddr || t.pickupAddr || '',
+        place: t.dropoffAddr || '',
         note: pay ? pay.notes.join(' / ') : '',
       });
 
@@ -332,6 +356,11 @@
       events.push({
         kind: 'base',
         time: eventTime,
+        requestTime: t.requestTime || null,
+        dropoffTime: t.dropoffTime || null,
+        pickupAddr: t.pickupAddr || '',
+        pickupName: storeNameFromAddress(t.pickupAddr || ''),
+        dropoffAddr: t.dropoffAddr || '',
         businessDate: businessDateStr(eventTime),
         amount: pay.amount,
         rideId,
@@ -348,6 +377,11 @@
       events.push({
         kind: 'promo',
         time: eventTime,
+        requestTime: null,
+        dropoffTime: null,
+        pickupAddr: '',
+        pickupName: '',
+        dropoffAddr: '',
         businessDate: businessDateStr(eventTime),
         amount: p.amount,
         rideId: null,
@@ -646,7 +680,7 @@
     return state.chart;
   };
 
-  const updateChart = (events) => {
+  const updateChart = (events, activeHoursInfo) => {
     const chart = ensureChart();
 
     if (!events.length) {
@@ -656,7 +690,32 @@
       return;
     }
 
-    const { baseData, promoData } = buildCumulativeSeries(events);
+    const omitIdle = !!toggleOmitIdle.checked;
+    const indexByHour = (activeHoursInfo && activeHoursInfo.indexByHour) ? activeHoursInfo.indexByHour : new Map();
+
+    const buildSeries = () => {
+      let baseCum = 0;
+      let promoCum = 0;
+      const baseData = [];
+      const promoData = [];
+
+      for (const e of events) {
+        if (e.kind === 'base') baseCum += e.amount;
+        else if (e.kind === 'promo') promoCum += e.amount;
+
+        if (omitIdle) {
+          const vx = computeVirtualX(e.time, indexByHour);
+          baseData.push({ x: vx, y: baseCum, t: e.time });
+          promoData.push({ x: vx, y: promoCum, t: e.time });
+        } else {
+          baseData.push({ x: e.time, y: baseCum });
+          promoData.push({ x: e.time, y: promoCum });
+        }
+      }
+      return { baseData, promoData };
+    };
+
+    const { baseData, promoData } = buildSeries();
 
     const baseDs = downsample(baseData, 6000);
     const promoDs = downsample(promoData, 6000);
@@ -665,25 +724,136 @@
     chart.data.datasets[1].data = promoDs;
     chart.data.datasets[1].hidden = !togglePromo.checked;
 
+    // switch x scale type
+    if (omitIdle) {
+      chart.options.scales.x.type = 'linear';
+      chart.options.scales.x.title = { display: true, text: '稼働時間（省略表示）' };
+      chart.options.scales.x.ticks.callback = (v) => `${Math.round(v)}h`;
+      // tooltip title shows original datetime if available
+      chart.options.plugins.tooltip.callbacks.title = (items) => {
+        if (!items || !items.length) return '';
+        const raw = items[0].raw;
+        const t = raw && raw.t ? raw.t : null;
+        return t ? new Date(t).toLocaleString('ja-JP') : '';
+      };
+      chart.options.plugins.zoom.zoom.mode = 'x';
+      chart.options.plugins.zoom.pan.mode = 'x';
+    } else {
+      chart.options.scales.x.type = 'time';
+      chart.options.scales.x.title = { display: false };
+      chart.options.scales.x.ticks.callback = undefined;
+      chart.options.plugins.tooltip.callbacks.title = undefined;
+    }
+
     chart.update();
+  };
+
+  // ====== Working hours (estimated) ======
+  const hourStartMs = (d) => {
+    const x = new Date(d);
+    x.setMinutes(0,0,0);
+    return x.getTime();
+  };
+
+  // Determine active hours from base trips (prefer requestTime). Fill gaps < 6 hours as active.
+  const computeActiveHours = (baseEvents) => {
+    const active = new Set();
+    const hours = [];
+
+    for (const e of baseEvents) {
+      const t = e.requestTime || e.time;
+      if (!t) continue;
+      const ms = hourStartMs(t);
+      if (!active.has(ms)) {
+        active.add(ms);
+        hours.push(ms);
+      }
+    }
+
+    hours.sort((a,b)=>a-b);
+
+    // Fill gaps < 6h (i.e., deltaHours < 6)
+    for (let i=0;i<hours.length-1;i++){
+      const a = hours[i], b = hours[i+1];
+      const delta = Math.round((b - a) / (60*60*1000));
+      if (delta >= 2 && delta < 6) {
+        for (let k=1;k<delta;k++){
+          active.add(a + k*60*60*1000);
+        }
+      }
+    }
+
+    // Build sorted list & index map
+    const sorted = [...active].sort((a,b)=>a-b);
+    const indexByHour = new Map();
+    for (let i=0;i<sorted.length;i++) indexByHour.set(sorted[i], i);
+
+    return { activeSet: active, sortedHours: sorted, indexByHour };
+  };
+
+  const computeVirtualX = (dateObj, indexByHour) => {
+    if (!dateObj) return 0;
+    const ms0 = hourStartMs(dateObj);
+    let idx = indexByHour.get(ms0);
+    if (idx === undefined) {
+      // if inactive hour, map to previous index (or 0)
+      // find closest previous hour in map by stepping back up to 24h
+      let tmp = ms0;
+      for (let i=0;i<24;i++){
+        tmp -= 60*60*1000;
+        const v = indexByHour.get(tmp);
+        if (v !== undefined) { idx = v; break; }
+      }
+      if (idx === undefined) idx = 0;
+    }
+    const frac = (dateObj.getMinutes() + dateObj.getSeconds()/60 + dateObj.getMilliseconds()/60000) / 60;
+    return idx + frac;
   };
 
   // ====== Stats & details ======
   const updateStats = (events) => {
     let base = 0, promo = 0, trips = 0;
+    const baseEvents = [];
     for (const e of events) {
-      if (e.kind === 'base') { base += e.amount; trips += (e.rideId ? 1 : 0); }
+      if (e.kind === 'base') {
+        base += e.amount;
+        if (e.rideId) trips += 1;
+        baseEvents.push(e);
+      }
       if (e.kind === 'promo') promo += e.amount;
     }
+
+    const { sortedHours } = computeActiveHours(baseEvents);
+    const activeHours = sortedHours.length;
+
     statBase.textContent = fmtYen(base);
     statPromo.textContent = fmtYen(promo);
     statTotal.textContent = fmtYen(base + promo);
     statTrips.textContent = trips.toLocaleString();
+
+    statActiveHours.textContent = activeHours ? `${activeHours.toLocaleString()}h` : '-';
+    if (activeHours) {
+      const hourly = (base + promo) / activeHours;
+      statHourly.textContent = fmtYen(hourly);
+      statTripsPerHour.textContent = (trips / activeHours).toFixed(2);
+    } else {
+      statHourly.textContent = '-';
+      statTripsPerHour.textContent = '-';
+    }
+
+    return { activeHoursInfo: computeActiveHours(baseEvents) };
   };
 
   const buildDetailRows = (events) => {
     // copy for sorting/searching
     return events.map(e => ({
+      requestMs: e.requestTime ? e.requestTime.getTime() : null,
+      dropoffMs: e.dropoffTime ? e.dropoffTime.getTime() : (e.kind==='base' ? e.time.getTime() : null),
+      pickupName: e.pickupName || storeNameFromAddress(e.pickupAddr || ''),
+      pickupAddr: e.pickupAddr || '',
+      dropoffAddr: e.dropoffAddr || e.place || '',
+        (e.pickupName || '') + ' ' + (e.pickupAddr || ''),
+        (e.dropoffAddr || ''),
       ...e,
       timeMs: e.time.getTime(),
       kindLabel: e.kind === 'base' ? '配達報酬' : 'プロモーション',
@@ -695,6 +865,8 @@
         e.rideId || '',
         (e.txnIds || []).join(' '),
         e.place || '',
+        (e.pickupName || '') + ' ' + (e.pickupAddr || ''),
+        (e.dropoffAddr || ''),
         e.note || '',
       ].join(' ').toLowerCase(),
     }));
@@ -728,6 +900,10 @@
     for (const r of shown) {
       const tr = document.createElement('tr');
 
+      const tdReq = document.createElement('td');
+      tdReq.textContent = r.requestMs ? new Date(r.requestMs).toLocaleString('ja-JP') : '';
+      tr.appendChild(tdReq);
+
       const tdTime = document.createElement('td');
       tdTime.textContent = new Date(r.timeMs).toLocaleString('ja-JP');
       tr.appendChild(tdTime);
@@ -753,9 +929,13 @@
       tdTxn.textContent = r.txnId;
       tr.appendChild(tdTxn);
 
-      const tdPlace = document.createElement('td');
-      tdPlace.textContent = r.place || '';
-      tr.appendChild(tdPlace);
+      const tdPickup = document.createElement('td');
+      tdPickup.textContent = r.pickupName || '';
+      tr.appendChild(tdPickup);
+
+      const tdDrop = document.createElement('td');
+      tdDrop.textContent = r.dropoffAddr || '';
+      tr.appendChild(tdDrop);
 
       const tdNote = document.createElement('td');
       tdNote.textContent = r.note || '';
@@ -780,8 +960,8 @@
     updatePeriodUI(eventsAll);
     const events = filterEventsByRange(eventsAll, rangeKey);
 
-    updateStats(events);
-    updateChart(events);
+    const statsInfo = updateStats(events);
+    updateChart(events, statsInfo ? statsInfo.activeHoursInfo : null);
     renderDetails(events);
   };
 
@@ -861,6 +1041,7 @@
   });
 
   togglePromo.addEventListener('change', () => refreshAll());
+  toggleOmitIdle.addEventListener('change', () => refreshAll());
   toggleFailed.addEventListener('change', () => refreshAll());
   searchBox.addEventListener('input', () => refreshAll());
   sortSelect.addEventListener('change', () => refreshAll());

@@ -88,6 +88,10 @@
             <span>プロモーションを表示</span>
           </label>
           <label class="toggle">
+            <input id="toggleOmitIdle" type="checkbox" />
+            <span>非稼働時間（1時間）を省略して表示</span>
+          </label>
+          <label class="toggle">
             <input id="toggleFailed" type="checkbox" />
             <span>failed/キャンセル等も含める（trip側）</span>
           </label>
@@ -109,6 +113,18 @@
           <div class="stat">
             <div class="stat__label">回数（乗車IDあり）</div>
             <div class="stat__value" id="statTrips">-</div>
+          </div>
+          <div class="stat">
+            <div class="stat__label">稼働時間（推定）</div>
+            <div class="stat__value" id="statActiveHours">-</div>
+          </div>
+          <div class="stat">
+            <div class="stat__label">時給（推定）</div>
+            <div class="stat__value" id="statHourly">-</div>
+          </div>
+          <div class="stat">
+            <div class="stat__label">配達/時（推定）</div>
+            <div class="stat__value" id="statTripsPerHour">-</div>
           </div>
         </div>
 
@@ -148,13 +164,15 @@
           <table class="table" id="detailTable">
             <thead>
               <tr>
-                <th>日時</th>
+                <th>依頼時間</th>
+                <th>降車時間</th>
                 <th>業務日付</th>
                 <th>区分</th>
                 <th class="num">金額</th>
                 <th>乗車ID</th>
                 <th>取引ID</th>
-                <th>場所（降車/住所）</th>
+                <th>乗車場所（店舗名）</th>
+                <th>降車場所</th>
                 <th>備考</th>
               </tr>
             </thead>
