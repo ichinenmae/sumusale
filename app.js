@@ -150,6 +150,11 @@
     return null;
   };
 
+  const isIgnoredPaymentRow = (note) => {
+    const normalized = String(note ?? '').trim().toLowerCase();
+    return normalized === 'so.payout';
+  };
+
   const normalizePaymentRow = (row, headers) => {
     const txnCol = findCol(headers, ['取引ID', 'transaction id', 'Transaction ID']);
     const rideCol = findCol(headers, ['乗車ID', '乗車の UUID', 'ride id', 'Trip UUID']);
@@ -159,6 +164,9 @@
 
     const txnId = txnCol ? String(row[txnCol] ?? '').trim() : '';
     if (!txnId) return null;
+
+    const note = noteCol ? String(row[noteCol] ?? '').trim() : '';
+    if (isIgnoredPaymentRow(note)) return null;
 
     const rideIdRaw = rideCol ? String(row[rideCol] ?? '').trim() : '';
     const rideId = rideIdRaw || null;
@@ -171,7 +179,7 @@
       rideId,
       amount,
       paymentTime,
-      note: noteCol ? String(row[noteCol] ?? '').trim() : '',
+      note,
     };
   };
 

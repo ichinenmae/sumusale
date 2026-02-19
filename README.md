@@ -13,6 +13,7 @@ Uber Eats等のCSV（`trip_activity` / `payments_order`）をブラウザで読�
 - 結合キー: `trip_activity` の「乗車の UUID」 ↔ `payments_order` の「乗車ID」
 - 配達報酬: `payments_order` で「乗車ID」がある行の「支払い額」合計
 - プロモーション: `payments_order` で「乗車ID」が空欄の行の「支払い額」合計
+- ただし備考が `so.payout` の行は報酬支払なので集計対象外
 - 業務日付: 午前4:00 で日付切替
 - 週の開始: 月曜始まり
 
