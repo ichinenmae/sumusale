@@ -45,7 +45,7 @@ a{color:var(--accent);}
 .container{padding:8px 18px 18px; max-width:1600px; margin:0 auto;}
 .grid{display:grid; grid-template-columns: 1fr; gap:14px; margin-top:14px;}
 @media (min-width: 980px){
-  .grid{grid-template-columns: 1.1fr .9fr;}
+  .grid{grid-template-columns: 1fr;}
   .header__title h1:not(.appName){font-size:22px;}
 }
 
