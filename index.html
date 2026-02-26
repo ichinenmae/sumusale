@@ -3,76 +3,50 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>売上管理（CSVローカル集計）</title>
-  <link rel="stylesheet" href="styles.css" />
-  <!-- CSV parser -->
+  <title>スムセル （smooth sales） 売上管理</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css" />
+  <link rel="stylesheet" href="styles.css?v=rev63" />
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-  <!-- Chart -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/date-fns@2.30.0"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/date-fns@2.30.0/dist/date-fns.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&display=swap" rel="stylesheet">
 </head>
 <body>
   <header class="header">
     <div class="header__title">
-      <h1>売上管理</h1>
+      <h1 class="appName">ス ム セ ル</h1>
       <p class="muted">CSVはブラウザ内でのみ処理され、外部へ送信しません。</p>
     </div>
     <div class="header__actions">
-      <button id="btnClear" class="btn btn--secondary" type="button">データをクリア</button>
-      <button id="btnExport" class="btn btn--secondary" type="button">集計結果JSONを書き出し</button>
+<button id="btnClear" class="btn btn--secondary" type="button">データをクリア</button>
+      <button id="btnExport" class="btn btn--secondary btn-subtle" type="button">JSON書き出し（デバッグ）</button>
     </div>
   </header>
 
   <main class="container">
     <section class="card dropzone" id="dropzone" aria-label="CSV読み込み">
-      <div class="dropzone__inner">
-        <div class="dropzone__title">ここにCSVをドラッグ＆ドロップ</div>
-        <div class="dropzone__desc">
-          <div>対応: <code>trip_activity</code> / <code>payments_order</code>（複数同時OK / 追加ドロップでマージ）</div>
-          <div class="muted">例: <code>...-trip_activity-....csv</code>, <code>...-payments_order-....csv</code></div>
+            <div class="dropzone__inner">
+        <div class="dropzone__stack">
+          <div class="dropzone__title">ここにCSVをドラッグ＆ドロップ</div>
+          <label for="filePicker" class="btn btn--secondary" id="btnFilePick">ファイル選択</label>
+          <div class="dropzone__sub">（複数同時OK / 追加ドロップでマージ）</div>
         </div>
-        <div class="period" id="periodControls">
-          <div class="period__row">
-            <div class="period__group" id="periodStartGroup">
-              <label class="period__label" for="periodStart">開始日</label>
-              <input id="periodStart" class="date" type="date" />
-            </div>
-            <div class="period__group" id="periodEndGroup" style="display:none">
-              <label class="period__label" for="periodEnd">終了日</label>
-              <input id="periodEnd" class="date" type="date" />
-            </div>
-            <div class="period__spacer"></div>
-            <button id="btnPrev" class="btn btn--secondary" type="button">前</button>
-            <button id="btnNext" class="btn btn--secondary" type="button">次</button>
-          </div>
-
-          <div class="period__row period__row--zoom">
-            <label class="toggle">
-              <input id="toggleZoom" type="checkbox" checked />
-              <span>ズーム有効（ホイール/ピンチ）</span>
-            </label>
-            <label class="toggle">
-              <input id="togglePan" type="checkbox" checked />
-              <span>パン有効（Shift+ドラッグ）</span>
-            </label>
-            <button id="btnResetZoom" class="btn btn--secondary" type="button">ズームをリセット</button>
-          </div>
-
-          <div class="muted small" id="periodHint"></div>
-        </div>
-        <input id="filePicker" type="file" accept=".csv,text/csv" multiple />
+        <input id="filePicker" type="file" accept=".csv,text/csv" multiple class="fileInputHidden" />
       </div>
-      <div class="dropzone__status" id="loadStatus">
-        未読み込み
-      </div>
+
+<div class="dropzone__status" id="loadStatus">未読み込み</div>
     </section>
 
     <section class="grid">
-      <section class="card">
+      <section class="card" id="periodCard">
         <div class="card__header">
           <h2>表示期間</h2>
+            <div class="jumpBtns" data-scroll-from="表示期間"><button class="jumpBtn" type="button" data-scroll-to="rankingCard" aria-label="上へ">▲</button><button class="jumpBtn" type="button" data-scroll-to="detailsCard" aria-label="下へ">▼</button></div>
           <div class="filters">
             <button class="pill is-active" data-range="day">日次</button>
             <button class="pill" data-range="week">週次（月曜始まり）</button>
@@ -82,7 +56,36 @@
           </div>
         </div>
 
+        <div class="period" id="periodControls">
+          <div class="period__row">
+            <div class="period__group">
+              <label class="period__label" for="periodStart">開始日</label>
+              <input id="periodStart" class="date" type="text" inputmode="numeric" placeholder="YYYY-MM-DD" />
+            </div>
+            <div class="period__group" id="periodEndGroup" style="display:none">
+              <label class="period__label" for="periodEnd">終了日</label>
+              <input id="periodEnd" class="date" type="text" inputmode="numeric" placeholder="YYYY-MM-DD" />
+            </div>
+            <div class="period__group" id="dayViewGroup" style="display:none">
+              <label class="period__label" for="dayViewSelect">日次表示</label>
+              <select id="dayViewSelect" class="select">
+                <option value="combined" selected>階段＋時間帯別（同時）</option>
+                <option value="step">階段（累積）のみ</option>
+                <option value="hourly">時間帯別（1時間）</option>
+              </select>
+            </div>
+            <div class="period__spacer"></div>
+            <button id="btnPrev" class="btn btn--secondary" type="button">前</button>
+            <button id="btnNext" class="btn btn--secondary" type="button">次</button>
+          </div>
+<div class="muted small" id="periodHint"></div>
+        </div>
+
         <div class="toggles">
+          <label class="toggle">
+            <input id="toggleRound10" type="checkbox" />
+            <span>読み込み時に100円単位で四捨五入（10の位で判定）</span>
+          </label>
           <label class="toggle">
             <input id="togglePromo" type="checkbox" checked />
             <span>プロモーションを表示</span>
@@ -121,73 +124,201 @@
           <div class="stat">
             <div class="stat__label">時給（推定）</div>
             <div class="stat__value" id="statHourly">-</div>
+            <div class="stat__subvalue" id="statHourlyWithPromo">-</div>
           </div>
           <div class="stat">
             <div class="stat__label">配達/時（推定）</div>
             <div class="stat__value" id="statTripsPerHour">-</div>
           </div>
+          <div class="stat">
+            <div class="stat__label">配達単価（推定）</div>
+            <div class="stat__value" id="statUnit">-</div>
+            <div class="stat__subvalue" id="statUnitWithPromo">-</div>
+          </div>
         </div>
 
-        <div class="chartWrap">
-          <canvas id="chart" height="140"></canvas>
+        
+        <div id="chartControls" class="chart-controls">
+<label class="toggle">
+            <input id="toggleHourlyPromo" type="checkbox" />
+            <span>時間帯別にプロモを含める</span>
+          </label>
+</div>
+<div class="chartWrap">
+          
+      <div class="chartNav" id="chartNav">
+        <button type="button" class="btn" id="btnChartZoomIn">＋</button>
+        <button type="button" class="btn" id="btnChartZoomOut">－</button>
+        <button type="button" class="btn" id="btnChartLeft">◀</button>
+        <button type="button" class="btn" id="btnChartRight">▶</button>
+        <button type="button" class="btn" id="btnChartReset">リセット</button>
+      </div>
+
+<canvas id="chart" height="140"></canvas>
         </div>
 
         <details class="help">
           <summary>集計ルール（4時切替など）</summary>
           <ul>
+            <li class="muted"><b>ファイル名の目安</b>: <code>...-trip_activity-....csv</code> / <code>...-payments_order-....csv</code></li>
             <li>結合キー: <b>trip_activityの乗車UUID</b> と <b>payments_orderの乗車ID</b></li>
             <li>配達報酬: payments_orderで「乗車ID」がある行の <b>支払い額</b> 合計</li>
             <li>プロモーション: payments_orderで「乗車ID」が空欄の行の <b>支払い額</b> 合計</li>
-            <li>業務日付: <b>午前4:00</b> で日付切替（例: 02/13 01:00 → 02/12扱い）</li>
+            <li>除外: payments_orderで <code>so.payout</code> を含む行は売上ではないため除外</li>
+            <li>業務日付: <b>午前4:00</b> で日付切替</li>
             <li>週の開始: <b>月曜日</b></li>
+            <li>稼働時間: 1時間単位で推定。稼働時間帯の間の空きが <b>6時間未満</b> の場合は稼働扱いに補完。</li>
           </ul>
         </details>
       </section>
 
-      <section class="card">
+      <section class="card" id="detailsCard">
         <div class="card__header">
           <h2>詳細データ</h2>
+<div class="jumpBtns" data-scroll-from="詳細データ"><button class="jumpBtn" type="button" data-scroll-to="periodCard" aria-label="上へ">▲</button><button class="jumpBtn" type="button" data-scroll-to="rankingCard" aria-label="下へ">▼</button></div>
           <div class="muted small">表示件数が多い場合、先頭から一定件数のみ表示します。</div>
         </div>
 
-        <div class="tableTools">
-          <input id="searchBox" class="search" type="search" placeholder="検索（住所 / ID / 備考など）" />
-          <select id="sortSelect" class="select">
-            <option value="timeDesc">時間: 新しい順</option>
-            <option value="timeAsc">時間: 古い順</option>
-            <option value="amountDesc">金額: 大きい順</option>
-            <option value="amountAsc">金額: 小さい順</option>
-          </select>
+        <div class="detailLayout">
+          <div class="detailGroup">
+            <div class="detailGroup__title">乗車場所・降車場所</div>
+            <div class="detailGroup__body detailGroup__body--search">
+              <div class="field"><label>乗車場所</label><input id="pickupSearchBox" class="input" placeholder="例) マクドナルド AND 川崎" /></div>
+              <div class="field"><label>降車場所</label><input id="dropoffSearchBox" class="input" placeholder="例) 川崎市 NOT 幸区" /></div>
+            </div>
+          </div>
+
+          <div class="detailGroup">
+            <div class="detailGroup__title">フィルタ</div>
+            <div class="detailGroup__body detailGroup__body--filters">
+              <div class="field"><label>金額（以上）</label><input id="fAmtMin" type="number" class="input" placeholder="-" /></div>
+              <div class="field"><label>金額（以下）</label><input id="fAmtMax" type="number" class="input" placeholder="-" /></div>
+              <div class="field"><label>時給換算（以上）</label><input id="fWageMin" type="number" class="input" placeholder="-" /></div>
+              <div class="field"><label>時給換算（以下）</label><input id="fWageMax" type="number" class="input" placeholder="-" /></div>
+              <div class="field"><label>配達時間（分）（以上）</label><input id="fDurMin" type="number" class="input" placeholder="-" /></div>
+              <div class="field"><label>配達時間（分）（以下）</label><input id="fDurMax" type="number" class="input" placeholder="-" /></div>
+            </div>
+          </div>
+
+          <div class="detailGroup detailGroup--actions">
+            <div class="detailGroup__title">操作</div>
+            <div class="detailGroup__body detailGroup__body--actions">
+              <div class="sortHint">表の見出しクリックでソート（再クリックで昇順/降順）</div>
+              <button id="btnClearDetailFilters" class="btn small">条件クリア</button>
+              <label class="toggle">
+                <input id="toggleHideDropoff" type="checkbox" />
+                <span>降車場所非表示</span>
+              </label>
+</div>
+          </div>
         </div>
 
         <div class="tableWrap">
           <table class="table" id="detailTable">
             <thead>
               <tr>
-                <th>依頼時間</th>
-                <th>降車時間</th>
-                <th>業務日付</th>
-                <th>区分</th>
-                <th class="num">金額</th>
-                <th>乗車ID</th>
-                <th>取引ID</th>
-                <th>乗車場所（店舗名）</th>
-                <th>降車場所</th>
-                <th>備考</th>
+                <th data-sort="kindAsc">区分</th>
+                <th data-sort="reqAsc">依頼時間</th>
+                <th data-sort="dropAsc">降車時間</th>
+                <th data-sort="durAsc" class="num">配達時間</th>
+                <th data-sort="amountDesc" class="num">金額</th>
+                <th data-sort="wageDesc" class="num">時給換算</th>
+                <th data-sort="pickupAsc">乗車場所（店舗名）</th>
+                <th data-sort="dropoffAsc" class="dropoff-col">降車場所</th>
+                <th data-sort="zipAsc" class="num">降車場所郵便番号</th>
               </tr>
             </thead>
             <tbody id="detailTbody"></tbody>
           </table>
         </div>
         <div class="muted small" id="detailNote"></div>
+        <div class="muted small" id="rankNote"></div>
       </section>
+      <section class="card" id="rankingCard">
+        <div class="card__header">
+          <h2>ランキング</h2>
+            <div class="jumpBtns" data-scroll-from="ランキング"><button class="jumpBtn" type="button" data-scroll-to="detailsCard" aria-label="上へ">▲</button><button class="jumpBtn" type="button" data-scroll-to="periodCard" aria-label="下へ">▼</button></div>
+          <div class="muted small">表示期間内の配達データを集計します（プロモ除外）。</div>
+        </div>
+
+        <div class="rankControls">
+          <div class="rankGroup">
+            <div class="rankGroup__title">対象</div>
+            <div class="rankGroup__body">
+              <button class="pill is-active" id="rankTargetStore" type="button">店舗</button>
+              <button class="pill" id="rankTargetDropoff" type="button">降車場所</button>
+            </div>
+          </div>
+
+          <div class="rankGroup">
+            <div class="rankGroup__title">指標</div>
+            <div class="rankGroup__body">
+              <button class="pill is-active" id="rankMetricCount" type="button">件数</button>
+              <button class="pill" id="rankMetricWage" type="button">時給</button>
+              <button class="pill" id="rankMetricDuration" type="button">配達時間</button>
+            </div>
+          </div>
+
+          <div class="rankGroup" id="rankDurationModeGroup" style="display:none;">
+            <div class="rankGroup__title">配達時間</div>
+            <div class="rankGroup__body">
+              <button class="pill is-active" id="rankDurAvg" type="button">平均</button>
+              <button class="pill" id="rankDurTotal" type="button">合計</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="tableWrap">
+          <table class="table" id="rankTable">
+            <thead>
+              <tr>
+                <th data-rsort="rankAsc" class="num">順位</th>
+                <th data-rsort="labelAsc" id="rankLabelTh">キー</th>
+                <th data-rsort="countDesc" class="num">件数</th>
+                <th data-rsort="wageDesc" class="num">時給</th>
+                <th data-rsort="durDesc" class="num">配達時間</th>
+                <th data-rsort="amountDesc" class="num">合計報酬</th>
+                <th data-rsort="avgAmountDesc" class="num">平均単価</th>
+              </tr>
+            </thead>
+            <tbody id="rankTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
     </section>
   </main>
 
   <footer class="footer muted small">
-    GitHub Pages向け / 完全クライアントサイド（サーバー処理なし）
+    @ichinenmae / Ver 3.8.2 (rev63)</span>
   </footer>
 
-  <script src="app.js"></script>
+  
+
+  <!-- Raw Data Modal -->
+  <div id="rawModal" class="modalOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="rawModalTitle">
+    <div class="modalCard">
+      <div class="modalHeader">
+        <div class="modalTitle" id="rawModalTitle">生データ</div>
+        <button id="rawModalClose" class="iconBtn" aria-label="閉じる">×</button>
+      </div>
+      <div class="modalBody">
+        <div class="modalSection">
+          <div class="modalLabel">表示値（整形後）</div>
+          <pre id="rawModalShown" class="modalPre"></pre>
+          <button id="btnCopyShown" class="btn small">表示値をコピー</button>
+        </div>
+        <div class="modalSection">
+          <div class="modalLabel">生データ（省略前）</div>
+          <pre id="rawModalRaw" class="modalPre modalPre--raw"></pre>
+          <button id="btnCopyRaw" class="btn small">生データをコピー</button>
+        </div>
+      </div>
+    </div>
+  
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
+  <script src="app.js?v=rev63"></script>
+</div>
+
 </body>
 </html>
