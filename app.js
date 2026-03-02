@@ -31,7 +31,9 @@
   const toggleFailed = document.getElementById('toggleFailed');
 
   const statBase = document.getElementById('statBase');
+  const statTip = document.getElementById('statTip');
   const statPromo = document.getElementById('statPromo');
+  const statPromoBreakdown = document.getElementById('statPromoBreakdown');
   const statTotal = document.getElementById('statTotal');
   const statTrips = document.getElementById('statTrips');
   const statActiveHours = document.getElementById('statActiveHours');
@@ -87,6 +89,7 @@
     const { rawModal, rawModalClose, btnCopyShown, btnCopyRaw, rawModalShown, rawModalRaw } = getRawModalEls();
     if (rawModalClose) rawModalClose.addEventListener('click', closeRawModal);  };
   wireRawModal();
+  const { rawModal } = getRawModalEls();
   if (rawModal) rawModal.addEventListener('click', (e) => { if (e.target === rawModal) closeRawModal(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRawModal(); });
   if (btnCopyShown) btnCopyShown.addEventListener('click', () => copyText(rawModalShown.textContent));
@@ -103,6 +106,26 @@
   const dayViewSelect = document.getElementById('dayViewSelect');
   const detailTbody = document.getElementById('detailTbody');
 
+  // ===== Daily Route refs =====
+  const routeDetails = document.getElementById('routeDetails');
+  const routeMeta = document.getElementById('routeMeta');
+  const routeLinks = document.getElementById('routeLinks');
+  const routeZipOnly = document.getElementById('routeZipOnly');
+
+  // ===== Cancel refs =====
+  const cancelDetails = document.getElementById('cancelDetails');
+  const cancelMeta = document.getElementById('cancelMeta');
+  const cancelTbody = document.getElementById('cancelTbody');
+  const cancelBadge = document.getElementById('cancelBadge');
+  const routeTbody = document.getElementById('routeTbody');
+
+  // ===== Quest refs =====
+  const questDetails = document.getElementById('questDetails');
+  const questMeta = document.getElementById('questMeta');
+  const questTbody = document.getElementById('questTbody');
+  const questBadge = document.getElementById('questBadge');
+
+
   // ===== Ranking refs =====
   const rankTbody = document.getElementById('rankTbody');
   const rankNote = document.getElementById('rankNote');
@@ -111,6 +134,18 @@
   const zipDictLoader = document.getElementById('zipDictLoader');
   const zipDictStatus = document.getElementById('zipDictStatus');
   const zipDictHint = document.getElementById('zipDictHint');
+
+  // ===== Data Quality refs =====
+  const qPayments1 = document.getElementById('qPayments1');
+  const qPayments2 = document.getElementById('qPayments2');
+  const qTrips1 = document.getElementById('qTrips1');
+  const qTrips2 = document.getElementById('qTrips2');
+  const qJoin1 = document.getElementById('qJoin1');
+  const qJoin2 = document.getElementById('qJoin2');
+  const qZip1 = document.getElementById('qZip1');
+  const qZip2 = document.getElementById('qZip2');
+  const qUpdatedAt = document.getElementById('qUpdatedAt');
+
   const rankDurationModeGroup = document.getElementById('rankDurationModeGroup');
   const rankLabelTh = document.getElementById('rankLabelTh');
 
@@ -346,10 +381,56 @@
 
       const key = td.dataset.rawKey;
       if (key === 'pickup') {
+        const shownLines = [];
+        if (r.pickupDisplay) shownLines.push(r.pickupDisplay);
+        if (r.pickupAddrShort) shownLines.push(r.pickupAddrShort);
+
+        let rawPickup = (r.rawPickup || '').toString();
+        // fallback: re-read from trip map if available
+        if (!rawPickup && r.rideId && state.tripsByRideId && state.tripsByRideId.has(r.rideId)) {
+          const t = state.tripsByRideId.get(r.rideId);
+          if (t && t.pickupAddr) rawPickup = String(t.pickupAddr);
+        }
+
+        const rawLines = [];
+        if (r.rideId) rawLines.push(`rideId: ${r.rideId}`);
+        if (rawPickup) {
+          rawLines.push(rawPickup);
+        } else {
+          rawLines.push("（店舗住所なし）");
+        }
+
+        // payments lines (if we have txnIds)
+        const txnIds = Array.isArray(r.txnIds) ? r.txnIds : [];
+        if (txnIds.length) {
+          rawLines.push('');
+          rawLines.push('payments_order:');
+          for (const id of txnIds) {
+            const p = state.paymentsByTxnId.get(id);
+            if (!p) continue;
+            const tm = p.paymentTime ? p.paymentTime.toLocaleString('ja-JP') : '';
+            const note = p.note ? p.note.replace(/\s+/g, ' ').trim() : '';
+            const tipTxt = (p.tipAmount && p.tipAmount > 0) ? ` / tip ${Math.round(p.tipAmount)}円` : '';
+            rawLines.push(`- txnId: ${p.txnId} / ${Math.round(p.amount)}円${tipTxt} / ${tm}${note ? ' / ' + note : ''}`);
+          }
+        }
+
+        // trip snapshot
+        if (r.rideId && state.tripsByRideId && state.tripsByRideId.has(r.rideId)) {
+          const t = state.tripsByRideId.get(r.rideId);
+          rawLines.push('');
+          rawLines.push('trip_activity:');
+          if (t.requestTime) rawLines.push(`- 依頼: ${t.requestTime.toLocaleString('ja-JP')}`);
+          if (t.dropoffTime) rawLines.push(`- 降車: ${t.dropoffTime.toLocaleString('ja-JP')}`);
+          if (t.status) rawLines.push(`- status: ${t.status}`);
+          if (!state.hideDropoff && t.dropoffAddr) rawLines.push(`- 降車住所: ${t.dropoffAddr}`);
+          if (state.hideDropoff) rawLines.push(`- 降車住所: （住所非表示）`);
+        }
+
         openRawModal({
-          title: '乗車場所（店舗名）',
-          shown: r.pickupDisplay || '',
-          raw: r.rawPickup || ''
+          title: '乗車場所（店舗）',
+          shown: shownLines.join('\n'),
+          raw: rawLines.join('\n')
         });
       } else if (key === 'dropoff') {
         openRawModal({
@@ -399,14 +480,205 @@
     rankSortDir: -1,
     theme: 'light',
     activeBizDates: new Set(),
+    dataMinBD: null,
+    dataMaxBD: null,
+    virtualXBounds: null,
     fpStart: null,
     fpEnd: null,
     chartViewMin: null,
     chartViewMax: null,
     chartViewEnabled: false,
+    ingestTotals: null,
+    qualitySnapshot: null,
+    zipDictStats: { status: 'idle', source: '', rows: 0, loadMs: 0, error: '' },
   };
 
   // ====== Helpers ======
+
+  function makeEmptyIngestTotals() {
+    return {
+      files: 0,
+      paymentFiles: 0,
+      tripFiles: 0,
+      unknownFiles: 0,
+      unknownRows: 0,
+      parseErrors: 0,
+      paymentRowsRead: 0,
+      tripRowsRead: 0,
+      paymentAdded: 0,
+      tripAdded: 0,
+      paymentDuplicates: 0,
+      tripDuplicates: 0,
+      paymentNoTxnId: 0,
+      paymentSoPayout: 0,
+      paymentNegative: 0,
+      tripNoRideId: 0,
+    };
+  }
+
+  function ensureIngestTotals() {
+    if (!state.ingestTotals) state.ingestTotals = makeEmptyIngestTotals();
+    return state.ingestTotals;
+  }
+
+  function computeQualitySnapshot() {
+    const ingest = ensureIngestTotals();
+
+    const paymentsTotal = state.paymentsByTxnId.size;
+    let paymentsWithRideId = 0;
+    let paymentsWithoutRideId = 0;
+    let promoNoTime = 0;
+
+    const payAggByRide = new Map();
+
+    for (const p of state.paymentsByTxnId.values()) {
+      if (p.rideId) {
+        paymentsWithRideId++;
+        const prev = payAggByRide.get(p.rideId) || { lastPaymentTime: null };
+        if (!prev.lastPaymentTime || (p.paymentTime && p.paymentTime > prev.lastPaymentTime)) prev.lastPaymentTime = p.paymentTime;
+        payAggByRide.set(p.rideId, prev);
+      } else {
+        paymentsWithoutRideId++;
+        if (!p.paymentTime) promoNoTime++;
+      }
+    }
+
+    const tripsTotal = state.tripsByRideId.size;
+    let tripsMissingRequest = 0;
+    let tripsMissingDropoff = 0;
+
+    let stCompleted = 0;
+    let stFailed = 0;
+    let stCancelled = 0;
+    let stOther = 0;
+
+    let pickupZipHas = 0;
+    let dropoffZipHas = 0;
+    let pickupZipInDict = 0;
+    let dropoffZipInDict = 0;
+
+    let tripsWithPayment = 0;
+    let tripsWithoutPayment = 0;
+    let tripEventNoTime = 0;
+
+    for (const [rideId, t] of state.tripsByRideId.entries()) {
+      if (!t.requestTime) tripsMissingRequest++;
+      if (!t.dropoffTime) tripsMissingDropoff++;
+
+      const st = (t.status || '').toLowerCase();
+      if (!st || st === 'completed') stCompleted++;
+      else if (st === 'failed') stFailed++;
+      else if (st === 'rider_cancelled' || st === 'rider cancelled' || st === 'cancelled') stCancelled++;
+      else stOther++;
+
+      const pz = extractZipFromText(t.pickupAddr);
+      const dz = extractZipFromText(t.dropoffAddr);
+      if (pz) pickupZipHas++;
+      if (dz) dropoffZipHas++;
+
+      if (state.zipDictReady && state.zipDict) {
+        const p7 = normalizeZip7(pz);
+        const d7 = normalizeZip7(dz);
+        if (p7 && state.zipDict.has(p7)) pickupZipInDict++;
+        if (d7 && state.zipDict.has(d7)) dropoffZipInDict++;
+      }
+
+      const pay = payAggByRide.get(rideId);
+      if (pay) tripsWithPayment++; else tripsWithoutPayment++;
+
+      const eventTime = t.dropoffTime || (pay ? pay.lastPaymentTime : null);
+      if (!eventTime) tripEventNoTime++;
+    }
+
+    let paymentsRideIdNoTrip = 0;
+    for (const rideId of payAggByRide.keys()) {
+      if (!state.tripsByRideId.has(rideId)) paymentsRideIdNoTrip++;
+    }
+
+    const zip = {
+      ready: !!state.zipDictReady,
+      size: state.zipDict ? state.zipDict.size : 0,
+      stats: state.zipDictStats || { status: 'idle', source: '', rows: 0, loadMs: 0, error: '' },
+      pickupZipHas,
+      dropoffZipHas,
+      pickupZipInDict,
+      dropoffZipInDict,
+    };
+
+    state.qualitySnapshot = {
+      updatedAt: new Date(),
+      ingest,
+      derived: {
+        paymentsTotal,
+        paymentsWithRideId,
+        paymentsWithoutRideId,
+        promoNoTime,
+        tripsTotal,
+        tripsMissingRequest,
+        tripsMissingDropoff,
+        stCompleted,
+        stFailed,
+        stCancelled,
+        stOther,
+        tripsWithPayment,
+        tripsWithoutPayment,
+        paymentsRideIdNoTrip,
+        tripEventNoTime,
+      },
+      zip,
+    };
+
+    return state.qualitySnapshot;
+  }
+
+  function renderQualitySnapshot() {
+    if (!qPayments1 || !qTrips1 || !qJoin1 || !qZip1 || !qUpdatedAt) return;
+
+    const snap = state.qualitySnapshot || computeQualitySnapshot();
+    const ingest = snap.ingest || makeEmptyIngestTotals();
+    const d = snap.derived;
+
+    const nf = (n) => (Number.isFinite(n) ? Math.trunc(n).toLocaleString() : '0');
+
+    qPayments1.textContent = `CSV行 ${nf(ingest.paymentRowsRead)} → ユニーク ${nf(d.paymentsTotal)}（重複 ${nf(ingest.paymentDuplicates)}）`;
+    qPayments2.textContent = `除外: so.payout ${nf(ingest.paymentSoPayout)} / マイナス ${nf(ingest.paymentNegative)} / 取引IDなし ${nf(ingest.paymentNoTxnId)}  | rideIdあり ${nf(d.paymentsWithRideId)} / 空欄 ${nf(d.paymentsWithoutRideId)}`;
+
+    qTrips1.textContent = `CSV行 ${nf(ingest.tripRowsRead)} → ユニーク ${nf(d.tripsTotal)}（重複 ${nf(ingest.tripDuplicates)} / rideIdなし ${nf(ingest.tripNoRideId)}）`;
+    qTrips2.textContent = `時刻欠損: 依頼なし ${nf(d.tripsMissingRequest)} / 降車なし ${nf(d.tripsMissingDropoff)}  | ステータス: completed ${nf(d.stCompleted)} / failed ${nf(d.stFailed)} / cancelled ${nf(d.stCancelled)} / other ${nf(d.stOther)}`;
+
+    qJoin1.textContent = `trip→支払い: あり ${nf(d.tripsWithPayment)} / なし ${nf(d.tripsWithoutPayment)}  | 支払い(rideIdあり)→tripなし ${nf(d.paymentsRideIdNoTrip)}`;
+    qJoin2.textContent = `イベント時刻欠損で非表示: trip ${nf(d.tripEventNoTime)} / promo ${nf(d.promoNoTime)}`;
+
+    const z = snap.zip;
+    const zs = z.stats || { status: 'idle', source: '', rows: 0, loadMs: 0, error: '' };
+
+    let zipState = '未読み込み';
+    if (z.ready) {
+      const extra = [];
+      if (zs.source) extra.push(zs.source);
+      if (zs.loadMs) extra.push(`${nf(zs.loadMs)}ms`);
+      zipState = `読み込み済み（${nf(z.size)}件${extra.length ? ' / ' + extra.join(' / ') : ''}）`;
+    } else if (zs.status === 'loading') {
+      zipState = '読み込み中...';
+    } else if (zs.status === 'error') {
+      zipState = `読込失敗${zs.error ? '（' + zs.error + '）' : ''}`;
+    }
+
+    qZip1.textContent = `状態: ${zipState}`;
+
+    if (z.ready) {
+      qZip2.textContent = `住所に郵便番号あり: 店舗 ${nf(z.pickupZipHas)}/${nf(d.tripsTotal)}（辞書一致 ${nf(z.pickupZipInDict)}） / 降車 ${nf(z.dropoffZipHas)}/${nf(d.tripsTotal)}（辞書一致 ${nf(z.dropoffZipInDict)}）`;
+    } else {
+      qZip2.textContent = `住所に郵便番号あり: 店舗 ${nf(z.pickupZipHas)}/${nf(d.tripsTotal)} / 降車 ${nf(z.dropoffZipHas)}/${nf(d.tripsTotal)}`;
+    }
+
+    const up = snap.updatedAt ? snap.updatedAt.toLocaleString() : '';
+    qUpdatedAt.textContent = `ファイル ${nf(ingest.files)}（不明 ${nf(ingest.unknownFiles)} / 不明行 ${nf(ingest.unknownRows)} / parseErr ${nf(ingest.parseErrors)}）  更新: ${up}`;
+
+    // keep compact status line too
+    if (zipDictStatus) zipDictStatus.textContent = zipState;
+  }
+
 
   
 const buildPickupTarget = (r) => {
@@ -610,6 +882,18 @@ const extractZipFromText = (s) => {
     return `${y}-${m}-${day}`;
   };
 
+  const hhMm = (d) => {
+    if (!d) return '';
+    const h = String(d.getHours()).padStart(2, '0');
+    const m = String(d.getMinutes()).padStart(2, '0');
+    return `${h}:${m}`;
+  };
+
+  const ymdHm = (d) => {
+    if (!d) return '';
+    return `${yyyyMmDd(d)} ${hhMm(d)}`;
+  };
+
   const businessDateStr = (d) => {
     const adj = new Date(d.getTime() - 4 * 60 * 60 * 1000);
     return yyyyMmDd(adj);
@@ -762,24 +1046,40 @@ const extractZipFromText = (s) => {
     return null;
   };
 
-  const normalizePaymentRow = (row, headers) => {
+  const normalizePaymentRow = (row, headers, ingest) => {
     const txnCol = findCol(headers, ['取引ID', 'transaction id', 'Transaction ID']);
     const rideCol = findCol(headers, ['乗車ID', '乗車の UUID', 'ride id', 'Trip UUID']);
     const amtCol  = findCol(headers, ['支払い額']);
     const timeCol = findCol(headers, ['決済時間', 'payment time', '支払い時間']);
     const noteCol = findCol(headers, ['備考', 'note', 'remarks']);
+    const tipCol = findCol(headers, ['売り上げ:チップ', '売り上げ : チップ', '支払い額:売り上げ:チップ', '支払い額 : 売り上げ : チップ']);
+    const questCol = findCol(headers, ['プロモーション:クエスト', 'プロモーション : クエスト', '支払い額:売り上げ:プロモーション:クエスト', '支払い額 : 売り上げ : プロモーション : クエスト']);
+    // Promotion total (not quest). Some CSVs include both promo total and quest.
+    const promoColExact = findCol(headers, ['支払い額 : 売り上げ : プロモーション', '支払い額:売り上げ:プロモーション']);
+    let promoCol = promoColExact;
+    if (!promoCol) {
+      promoCol = (headers || []).find(h => /プロモーション/.test(h) && !/クエスト/.test(h) && /売り上げ/.test(h)) || null;
+    }
 
     const txnId = txnCol ? String(row[txnCol] ?? '').trim() : '';
-    if (!txnId) return null;
+    if (!txnId) { if (ingest) ingest.paymentNoTxnId++; return null; }
 
     const rideIdRaw = rideCol ? String(row[rideCol] ?? '').trim() : '';
     const note = noteCol ? String(row[noteCol] ?? '').trim() : '';
 
     // so.payout は報酬支払（振込）として売上から除外
     const hay = `${txnId} ${rideIdRaw} ${note}`.toLowerCase();
-    if (hay.includes('so.payout')) return null;
+    if (hay.includes('so.payout')) { if (ingest) ingest.paymentSoPayout++; return null; }
 
     let amount = amtCol ? toNumber(row[amtCol]) : 0;
+    let tipAmount = tipCol ? toNumber(row[tipCol]) : 0;
+    if (!Number.isFinite(tipAmount) || tipAmount < 0) tipAmount = 0;
+    let questAmount = questCol ? toNumber(row[questCol]) : 0;
+    if (!Number.isFinite(questAmount) || questAmount < 0) questAmount = 0;
+    let promoAmount = promoCol ? toNumber(row[promoCol]) : 0;
+    if (!Number.isFinite(promoAmount) || promoAmount < 0) promoAmount = 0;
+    // 安全弁: マイナス金額は原則除外（返金/調整等で集計が崩れるのを防ぐ）
+    if (amount < 0) { if (ingest) ingest.paymentNegative++; return null; }
     if (state.round10) amount = Math.round(amount / 100) * 100;
     const paymentTime = timeCol ? parseDateTime(row[timeCol]) : null;
 
@@ -787,12 +1087,15 @@ const extractZipFromText = (s) => {
       txnId,
       rideId: rideIdRaw || null,
       amount,
+      tipAmount,
+      questAmount,
+      promoAmount,
       paymentTime,
       note,
     };
   };
 
-  const normalizeTripRow = (row, headers) => {
+  const normalizeTripRow = (row, headers, ingest) => {
     const rideCol = findCol(headers, ['乗車の UUID', '乗車ID', 'Trip UUID', 'ride id']);
     const requestCol = findCol(headers, ['乗車のリクエスト時間', '依頼時間', 'request']);
     const dropoffCol = findCol(headers, ['乗車の降車時間', '降車時間', 'dropoff']);
@@ -801,7 +1104,7 @@ const extractZipFromText = (s) => {
     const statusCol = findCol(headers, ['乗車ステータス', 'status']);
 
     const rideId = rideCol ? String(row[rideCol] ?? '').trim() : '';
-    if (!rideId) return null;
+    if (!rideId) { if (ingest) ingest.tripNoRideId++; return null; }
 
     const requestTime = requestCol ? parseDateTime(row[requestCol]) : null;
     const dropoffTime = dropoffCol ? parseDateTime(row[dropoffCol]) : null;
@@ -867,6 +1170,10 @@ const extractZipFromText = (s) => {
     if (state.zipDict) return state.zipDict;
     if (state.zipDictPromise) return state.zipDictPromise;
 
+    const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    state.zipDictStats = { status: 'loading', source: 'assets', rows: 0, loadMs: 0, error: '' };
+    if (zipDictStatus) zipDictStatus.textContent = '読み込み中...';
+
     state.zipDictPromise = new Promise((resolve, reject) => {
       const url = new URL('assets/utf_ken_all.csv', location.href).href;
       Papa.parse(url, {
@@ -879,13 +1186,26 @@ const extractZipFromText = (s) => {
             const map = buildZipDictFromRows(res.data || []);
             state.zipDict = map;
             state.zipDictReady = true;
-            if (zipDictStatus) zipDictStatus.textContent = '読み込み済み';
+            const t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            state.zipDictStats = { status: 'ready', source: 'assets', rows: (res.data || []).length, loadMs: Math.round(t1 - t0), error: '' };
+            if (zipDictStatus) zipDictStatus.textContent = `読み込み済み（${map.size.toLocaleString()}件）`;
             resolve(map);
           } catch (e) {
+            state.zipDictStats = { status: 'error', source: 'assets', rows: 0, loadMs: 0, error: String(e && e.message ? e.message : e) };
+            if (zipDictStatus) zipDictStatus.textContent = '読込失敗';
             reject(e);
+          } finally {
+            computeQualitySnapshot();
+            renderQualitySnapshot();
           }
         },
-        error: (err) => { if (zipDictStatus) zipDictStatus.textContent = '読込失敗'; reject(err); },
+        error: (err) => {
+          state.zipDictStats = { status: 'error', source: 'assets', rows: 0, loadMs: 0, error: String(err && err.message ? err.message : err) };
+          if (zipDictStatus) zipDictStatus.textContent = '読込失敗';
+          computeQualitySnapshot();
+          renderQualitySnapshot();
+          reject(err);
+        },
       });
     });
 
@@ -924,9 +1244,48 @@ const extractZipFromText = (s) => {
     return (city + tt).trim();
   };
 
+const stripStoreNameFromPickupAddr = (addr) => {
+  if (!addr) return '';
+  const s = String(addr).trim();
+  if (!s) return '';
+  const parts = s.split(/,|，/).map(x=>x.trim()).filter(Boolean);
+  if (parts.length <= 1) return s;
+  const head = parts[0] || '';
+  if (head && !head.startsWith('日本') && !head.startsWith('〒') && !head.match(/^\d{3}-?\d{4}/)) {
+    return parts.slice(1).join(', ');
+  }
+  return s;
+};
+
+
+const formatDropoffDisplay = (addr) => {
+    const src = (addr || '').toString().trim();
+    if (!src) return '';
+    const zRaw = extractZipFromText(src);
+    const z = normalizeZip7(zRaw);
+    if (z && state.zipDictReady) {
+      const s = kanjiShortFromZip(z);
+      if (s) return s;
+    }
+    return shortenAddress(src) || src;
+  };
+
+const shortPickupAddr = (addr) => {
+  const src = stripStoreNameFromPickupAddr(addr);
+  const z = extractZipFromText(src);
+  if (z && state.zipDictReady) {
+    const k = kanjiShortFromZip(z);
+    if (k) return k;
+  }
+  return shortenAddress(src);
+};
+
   const readFiles = async (files) => {
     const list = [...files];
     if (!list.length) return;
+
+    const ingest = ensureIngestTotals();
+    ingest.files += list.length;
 
     let addedPayments = 0;
     let addedTrips = 0;
@@ -941,26 +1300,35 @@ const extractZipFromText = (s) => {
         const type = detectCsvType(file.name, headers);
 
         if (type === 'payment') {
+          ingest.paymentFiles++;
+          ingest.paymentRowsRead += rows.length;
           for (const r of rows) {
-            const n = normalizePaymentRow(r, headers);
+            const n = normalizePaymentRow(r, headers, ingest);
             if (!n) { ignored++; continue; }
-            if (state.paymentsByTxnId.has(n.txnId)) { ignored++; continue; }
+            if (state.paymentsByTxnId.has(n.txnId)) { ingest.paymentDuplicates++; ignored++; continue; }
             state.paymentsByTxnId.set(n.txnId, n);
+            ingest.paymentAdded++;
             addedPayments++;
           }
         } else if (type === 'trip') {
+          ingest.tripFiles++;
+          ingest.tripRowsRead += rows.length;
           for (const r of rows) {
-            const n = normalizeTripRow(r, headers);
+            const n = normalizeTripRow(r, headers, ingest);
             if (!n) { ignored++; continue; }
-            if (state.tripsByRideId.has(n.rideId)) { ignored++; continue; }
+            if (state.tripsByRideId.has(n.rideId)) { ingest.tripDuplicates++; ignored++; continue; }
             state.tripsByRideId.set(n.rideId, n);
+            ingest.tripAdded++;
             addedTrips++;
           }
         } else {
+          ingest.unknownFiles++;
+          ingest.unknownRows += rows.length;
           ignored += rows.length;
         }
       } catch (e) {
         console.error(e);
+        ingest.parseErrors++;
         ignored++;
       }
     }
@@ -970,13 +1338,22 @@ const extractZipFromText = (s) => {
       `  |  合計：payments ${state.paymentsByTxnId.size.toLocaleString()}件 / trips ${state.tripsByRideId.size.toLocaleString()}件`;
 
     rebuildActiveBizDates();
+    computeQualitySnapshot();
+    renderQualitySnapshot();
     refreshAll();
 
     // zip dict warmup: load in background and re-render once ready
     if (!state.zipDictReady) {
       ensureZipDict().then(() => {
+        computeQualitySnapshot();
+        renderQualitySnapshot();
         if (state.events && state.events.length) refreshAll();
-      }).catch(() => { if (zipDictStatus && !state.zipDictReady) zipDictStatus.textContent = '未読み込み'; });
+      }).catch(() => {
+        if (zipDictStatus && !state.zipDictReady) zipDictStatus.textContent = '未読み込み';
+        if (state.zipDictStats) state.zipDictStats.status = 'error';
+        computeQualitySnapshot();
+        renderQualitySnapshot();
+      });
     }
   };
 
@@ -987,8 +1364,10 @@ const extractZipFromText = (s) => {
 
     for (const p of state.paymentsByTxnId.values()) {
       if (p.rideId) {
-        const prev = paymentsByRide.get(p.rideId) || { amount: 0, txnIds: [], lastPaymentTime: null, notes: [] };
+        const prev = paymentsByRide.get(p.rideId) || { amount: 0, tipAmount: 0, questAmount: 0, txnIds: [], lastPaymentTime: null, notes: [] };
         prev.amount += p.amount;
+        prev.tipAmount += (p.tipAmount || 0);
+        prev.questAmount += (p.questAmount || 0);
         prev.txnIds.push(p.txnId);
         if (!prev.lastPaymentTime || (p.paymentTime && p.paymentTime > prev.lastPaymentTime)) prev.lastPaymentTime = p.paymentTime;
         if (p.note) prev.notes.push(p.note);
@@ -1016,10 +1395,13 @@ const extractZipFromText = (s) => {
       events.push({
         kind: 'base',
         time: eventTime,
+        dropoffTime: t.dropoffTime || null,
         requestTime: t.requestTime || null,
         deliveryMinutes: (t.requestTime && t.dropoffTime) ? Math.max(0, Math.round((t.dropoffTime.getTime() - t.requestTime.getTime())/60000)) : null,
         businessDate: businessDateStr(eventTime),
         amount,
+        tipAmount: pay ? (pay.tipAmount || 0) : 0,
+        questAmount: pay ? (pay.questAmount || 0) : 0,
         rideId,
         txnIds: pay ? pay.txnIds : [],
         pickupName: t.pickupName || '',
@@ -1038,10 +1420,13 @@ const extractZipFromText = (s) => {
       events.push({
         kind: 'base',
         time: eventTime,
+        dropoffTime: null,
         requestTime: null,
         deliveryMinutes: null,
         businessDate: businessDateStr(eventTime),
         amount: pay.amount,
+        tipAmount: pay.tipAmount || 0,
+        questAmount: pay.questAmount || 0,
         rideId,
         txnIds: pay.txnIds,
         pickupName: '',
@@ -1058,10 +1443,14 @@ const extractZipFromText = (s) => {
       events.push({
         kind: 'promo',
         time: eventTime,
+        dropoffTime: null,
         requestTime: null,
         deliveryMinutes: null,
         businessDate: businessDateStr(eventTime),
         amount: p.amount,
+        tipAmount: 0,
+        questAmount: (p.questAmount || 0),
+        promoAmount: (p.promoAmount || 0),
         rideId: null,
         txnIds: [p.txnId],
         pickupName: '',
@@ -1096,6 +1485,13 @@ const extractZipFromText = (s) => {
     d.setDate(1);
     d.setHours(0,0,0,0);
     return yyyyMmDd(d);
+  };
+
+  const getMinBusinessDate = (events) => {
+    if (!events.length) return null;
+    let minBD = events[0].businessDate;
+    for (const e of events) if (e.businessDate < minBD) minBD = e.businessDate;
+    return minBD;
   };
 
   const getMaxBusinessDate = (events) => {
@@ -1367,6 +1763,17 @@ const extractZipFromText = (s) => {
     return h > 0 ? `${h}h${String(mm).padStart(2,'0')}m` : `${mm}m`;
   };
 
+
+  const formatWageLine = (amount, minutes) => {
+    const a = Number(amount);
+    const m = Number(minutes);
+    if (!Number.isFinite(a) || !Number.isFinite(m) || m <= 0) return '';
+    const wage = a * 60 / m;
+    if (!Number.isFinite(wage)) return '';
+    return `時給換算: ${fmtYen(wage)}/時`;
+  };
+
+
   
 const applyDatasetColors = (chart, desired) => {
   if (!chart || !chart.data || !chart.data.datasets) return;
@@ -1392,7 +1799,7 @@ const applyDatasetColors = (chart, desired) => {
       ds.borderColor = BLUE;
       ds.backgroundColor = BLUE_LINE_A;
       ds.order = 1;
-    } else if (label.includes('プロモーション（累積）')) {
+    } else if (label.includes('プロモその他（累積）')) {
       ds.borderColor = PINK;
       ds.backgroundColor = PINK_LINE_A;
       ds.order = 1;
@@ -1422,13 +1829,18 @@ const applyDatasetColors = (chart, desired) => {
       ds.borderColor = BLUE;
       ds.backgroundColor = BLUE_LINE_A;
       ds.order = 1;
-    } else if (label === 'プロモーション') {
+    } else if (label === 'プロモその他') {
       ds.borderColor = PINK;
       ds.backgroundColor = PINK_LINE_A;
       ds.order = 1;
     } else if (label === '総売上') {
       ds.borderColor = ORANGE;
       ds.backgroundColor = 'rgba(255, 159, 64, 0.20)';
+    } else if (label === '配達（ガント）') {
+      // Keep scriptable colors (functions) if already set
+      if (typeof ds.backgroundColor !== 'function') ds.backgroundColor = 'rgba(75, 192, 192, 0.35)';
+      if (typeof ds.borderColor !== 'function') ds.borderColor = 'rgb(75, 192, 192)';
+      ds.order = 3;
     } else if (label === '配達（ポイント）') {
       ds.borderColor = BLUE;
       ds.backgroundColor = BLUE_LINE_A;
@@ -1440,12 +1852,88 @@ const applyDatasetColors = (chart, desired) => {
 
   const clamp = (x, a, b) => Math.min(Math.max(x, a), b);
 
-  const getRangeBoundsMs = () => {
-    const minD = dateFromBusinessStr(state.periodStartBD) || (state.minBD ? dateFromBusinessStr(state.minBD) : null);
-    const maxD = dateFromBusinessStr(state.periodEndBD) || (state.maxBD ? dateFromBusinessStr(state.maxBD) : null);
-    if (!minD || !maxD) return null;
-    const minMs = minD.getTime();
-    const maxMs = maxD.getTime() + 24*3600*1000;
+  const getMinSpanX = (chart) => {
+    const xType = chart && chart.options && chart.options.scales && chart.options.scales.x ? chart.options.scales.x.type : 'time';
+    // omit-idle compression uses virtual hours (0..N)
+    if (xType === 'linear' && state.virtualXBounds) return 0.05; // 0.05h (=3min)
+    return 60 * 1000; // 1 min
+  };
+
+    const getRangeBoundsMs = () => {
+    // NOTE:
+    // - time scale: ms (timestamp)
+    // - omit-idle compressed scale (linear): virtual hours (0..N)
+    if (state.chart && state.chart.options && state.chart.options.scales && state.chart.options.scales.x) {
+      const xType = state.chart.options.scales.x.type;
+      if (xType === 'linear') {
+        // In linear mode we only support omit-idle compression bounds.
+        if (state.virtualXBounds && Number.isFinite(state.virtualXBounds.minX) && Number.isFinite(state.virtualXBounds.maxX)) {
+          const minMs = Number(state.virtualXBounds.minX);
+          const maxMs = Number(state.virtualXBounds.maxX);
+          if (maxMs > minMs) return { minMs, maxMs };
+        }
+        return null;
+      }
+    }
+
+    const key = state.lastRange || 'week';
+    const dataMinBD = state.dataMinBD || null;
+    const dataMaxBD = state.dataMaxBD || null;
+
+    const clampStartBD = (bd) => {
+      if (!bd) return bd;
+      if (key === 'week') return clampWeekStartMondayStr(bd);
+      if (key === 'month') return clampMonthStartStr(bd);
+      return bd;
+    };
+
+    if (key === 'all') {
+      if (!dataMinBD || !dataMaxBD) return null;
+      const b0 = getBusinessDayRealBounds(dataMinBD);
+      const b1 = getBusinessDayRealBounds(dataMaxBD);
+      if (!b0 || !b1) return null;
+      return { minMs: b0.start.getTime(), maxMs: b1.end.getTime() };
+    }
+
+    const startBD0 = clampStartBD(state.periodStartBD || dataMaxBD || dataMinBD);
+    if (!startBD0) return null;
+
+    if (key === 'custom') {
+      const endBD0 = state.periodEndBD || startBD0;
+      const b0 = getBusinessDayRealBounds(startBD0);
+      const b1 = getBusinessDayRealBounds(endBD0);
+      if (!b0 || !b1) return null;
+      let minMs = b0.start.getTime();
+      let maxMs = b1.end.getTime();
+      if (maxMs < minMs) { const t = minMs; minMs = maxMs; maxMs = t; }
+      return { minMs, maxMs };
+    }
+
+    if (key === 'day') {
+      const b = getBusinessDayRealBounds(startBD0);
+      if (!b) return null;
+      return { minMs: b.start.getTime(), maxMs: b.end.getTime() };
+    }
+
+    const d0 = dateFromBusinessStr(startBD0);
+    if (!d0) return null;
+    const start = new Date(d0);
+    start.setHours(4,0,0,0);
+
+    let end = null;
+    if (key === 'week') {
+      end = new Date(start);
+      end.setDate(end.getDate() + 7);
+    } else if (key === 'month') {
+      end = addMonths(start, 1);
+    } else {
+      end = new Date(start);
+      end.setDate(end.getDate() + 1);
+    }
+
+    const minMs = start.getTime();
+    const maxMs = end.getTime();
+    if (!(maxMs > minMs)) return null;
     return { minMs, maxMs };
   };
 
@@ -1460,7 +1948,8 @@ const applyDatasetColors = (chart, desired) => {
       return;
     }
 
-    const span = Math.max(60*1000, state.chartViewMax - state.chartViewMin);
+    const minSpan = getMinSpanX(chart);
+    const span = Math.max(minSpan, state.chartViewMax - state.chartViewMin);
     const min = clamp(state.chartViewMin, b.minMs, b.maxMs - span);
     const max = min + span;
 
@@ -1485,6 +1974,7 @@ const applyDatasetColors = (chart, desired) => {
   };
 
   const ensureChartViewportDefaults = () => {
+    if (state.chartViewEnabled && state.chartViewMin != null && state.chartViewMax != null) return;
     const b = getRangeBoundsMs();
     if (!b) return;
     state.chartViewMin = b.minMs;
@@ -1525,8 +2015,8 @@ const ensureChartForMode = (mode, xMode) => {
 
       if (desired === 'dayCombined') {
         data = { datasets: [
-          { label:'配達報酬（累積）', type:'line', data: [], stepped:true, fill:true, pointRadius:0, borderWidth:2, yAxisID:'yCum', stack:'sales' },
-          { label:'プロモーション（累積）', type:'line', data: [], stepped:true, fill:true, pointRadius:0, borderWidth:2, yAxisID:'yCum', stack:'sales' },
+          { label:'配達報酬（累積）', type: (desired === 'dayGantt') ? 'bar' : 'line', data: [], stepped:true, fill:true, pointRadius:0, borderWidth:2, yAxisID:'yCum', stack:'sales' },
+          { label:'プロモその他（累積）', type:'line', data: [], stepped:true, fill:true, pointRadius:0, borderWidth:2, yAxisID:'yCum', stack:'sales' },
           { label:'時間別報酬', type:'bar', data: [], yAxisID:'yHr' },
           { label:'時間別件数', type:'bar', data: [], yAxisID:'yCnt' },
           { label:'平均時給', type:'line', data: [], yAxisID:'yHr', pointRadius:0, borderWidth:2 },
@@ -1542,7 +2032,7 @@ const ensureChartForMode = (mode, xMode) => {
       } else if (desired === 'dayStep') {
         data = { datasets: [
           { label:'配達報酬（累積）', type:'line', data: [], stepped:true, fill:true, pointRadius:0, borderWidth:2, yAxisID:'y', stack:'sales' },
-          { label:'プロモーション（累積）', type:'line', data: [], stepped:true, fill:true, pointRadius:0, borderWidth:2, yAxisID:'y', stack:'sales' },
+          { label:'プロモその他（累積）', type:'line', data: [], stepped:true, fill:true, pointRadius:0, borderWidth:2, yAxisID:'y', stack:'sales' },
           { label:'最高報酬の配達', type:'scatter', data: [], yAxisID:'y', pointRadius:7, pointHoverRadius:9, showLine:false }
         ]};
         scales = {
@@ -1562,11 +2052,97 @@ const ensureChartForMode = (mode, xMode) => {
           yHr: { position:'left', beginAtZero:true, suggestedMin:0, ticks: currencyTicks, grid },
           yCnt: { position:'right', beginAtZero:true, suggestedMin:0, ticks: { color: tc.muted }, grid: { drawOnChartArea:false } },
         };
+      
+      } else if (desired === 'dayGantt') {
+        // Daily Gantt: request -> dropoff time bars (horizontal)
+        data = { labels: [], datasets: [
+          {
+            label: '配達（ガント）',
+            indexAxis: 'y',
+            type: 'bar',
+            data: [],
+            // Floating bar: x is [start,end] and y is a category label.
+            // Use explicit parsing keys (some environments fail to render when parsing is disabled).
+            parsing: { xAxisKey: 'x', yAxisKey: 'y' },
+            borderSkipped: false,
+            borderRadius: 3,
+            barPercentage: 0.95,
+            categoryPercentage: 0.9,
+            backgroundColor: (ctx) => {
+              const raw = ctx.raw || {};
+              const meta = raw.meta || {};
+              if (raw && raw.isMax) return 'rgba(255, 159, 64, 0.35)'; // highlight
+              if (meta.tipAmount && meta.tipAmount > 0) return 'rgba(54, 162, 235, 0.22)'; // tip
+              return 'rgba(75, 192, 192, 0.35)';
+            },
+            borderColor: (ctx) => {
+              const raw = ctx.raw || {};
+              const meta = raw.meta || {};
+              if (raw && raw.isMax) return 'rgb(255, 159, 64)';
+              if (meta.tipAmount && meta.tipAmount > 0) return 'rgb(54, 162, 235)';
+              return 'rgb(75, 192, 192)';
+            },
+            borderWidth: (ctx) => {
+              const raw = ctx.raw || {};
+              const meta = raw.meta || {};
+              if (raw && raw.isMax) return 3;
+              if (meta.tipAmount && meta.tipAmount > 0) return 2;
+              return 1;
+            },
+            borderDash: (ctx) => {
+              const raw = ctx.raw || {};
+              const meta = raw.meta || {};
+              return (meta.tipAmount && meta.tipAmount > 0) ? [4,2] : [];
+            },
+          }
+        ]};
+        scales = {
+          x: timeX,
+          y: {
+            type: 'category',
+            ticks: {
+              color: tc.muted,
+              callback: () => '',
+            },
+            grid,
+          },
+        };
       } else if (desired === 'cumulative') {
         data = { datasets: [
           { label:'配達報酬（累積）', type:'line', data: [], stepped:true, fill:true, pointRadius:0, borderWidth:2, yAxisID:'y', stack:'sales' },
-          { label:'プロモーション（累積）', type:'line', data: [], stepped:true, fill:true, pointRadius:0, borderWidth:2, yAxisID:'y', stack:'sales' },
-          { label:'配達（ポイント）', type:'scatter', data: [], yAxisID:'y', pointRadius:3, pointHoverRadius:5, showLine:false },
+          { label:'プロモその他（累積）', type:'line', data: [], stepped:true, fill:true, pointRadius:0, borderWidth:2, yAxisID:'y', stack:'sales' },
+          { label:'配達（ポイント）', type:'scatter', data: [], yAxisID:'y',
+            pointRadius: (ctx) => {
+              const raw = ctx.raw || {};
+              const meta = raw.meta || {};
+              return (meta.tipAmount && meta.tipAmount > 0) ? 5 : 3;
+            },
+            pointHoverRadius: (ctx) => {
+              const raw = ctx.raw || {};
+              const meta = raw.meta || {};
+              return (meta.tipAmount && meta.tipAmount > 0) ? 8 : 6;
+            },
+            pointStyle: (ctx) => {
+              const raw = ctx.raw || {};
+              const meta = raw.meta || {};
+              return (meta.tipAmount && meta.tipAmount > 0) ? 'triangle' : 'circle';
+            },
+            pointBorderWidth: (ctx) => {
+              const raw = ctx.raw || {};
+              const meta = raw.meta || {};
+              return (meta.tipAmount && meta.tipAmount > 0) ? 2 : 1;
+            },
+            pointBorderColor: (ctx) => {
+              const raw = ctx.raw || {};
+              const meta = raw.meta || {};
+              return (meta.tipAmount && meta.tipAmount > 0) ? 'rgb(255, 159, 64)' : 'rgb(54, 162, 235)';
+            },
+            pointBackgroundColor: (ctx) => {
+              const raw = ctx.raw || {};
+              const meta = raw.meta || {};
+              return (meta.tipAmount && meta.tipAmount > 0) ? 'rgba(255, 159, 64, 0.35)' : 'rgba(54, 162, 235, 0.18)';
+            },
+            showLine:false },
           { label:'最高報酬の配達', type:'scatter', data: [], yAxisID:'y', pointRadius:7, pointHoverRadius:9, showLine:false }
         ]};
         scales = {
@@ -1581,6 +2157,7 @@ const ensureChartForMode = (mode, xMode) => {
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          indexAxis: (desired === 'dayGantt') ? 'y' : 'x',
           interaction: { mode:'nearest', intersect:false },
           plugins: {
             decimation: { enabled: true, algorithm: 'min-max' },
@@ -1663,12 +2240,18 @@ const ensureChartForMode = (mode, xMode) => {
 
   const updateChart = (events, activeHoursInfo) => {
     const omitIdle = !!toggleOmitIdle.checked;
-    const xMode = omitIdle ? 'linear' : 'time';
+    const vDay = (state.lastRange === 'day') ? (state.dayView || 'combined') : null;
+    const isGantt = (state.lastRange === 'day' && vDay === 'gantt');
+    const xMode = isGantt ? 'time' : (omitIdle ? 'linear' : 'time');
 
     let chartMode = 'cumulative';
-    if (state.lastRange === 'day' && !omitIdle) {
-      const v = state.dayView || 'combined';
-      chartMode = (v === 'step') ? 'dayStep' : (v === 'hourly') ? 'dayHourly' : 'dayCombined';
+    if (state.lastRange === 'day' && (!omitIdle || isGantt)) {
+      const v = vDay || 'combined';
+      chartMode =
+        (v === 'step') ? 'dayStep' :
+        (v === 'hourly') ? 'dayHourly' :
+        (v === 'gantt') ? 'dayGantt' :
+        'dayCombined';
     }
 
     const chart = ensureChartForMode(chartMode, xMode);
@@ -1680,6 +2263,11 @@ const ensureChartForMode = (mode, xMode) => {
       if (modeKey === 'dayHourly' || modeKey === 'dayCombined') {
         chart.options.interaction = { mode: 'x', intersect: true };
         chart.options.hover = { mode: 'x', intersect: true };
+        chart.options.plugins.tooltip.position = 'nearest';
+      } else if (modeKey === 'dayGantt') {
+        // Horizontal floating bars: nearest works more reliably than mode 'x'
+        chart.options.interaction = { mode: 'nearest', intersect: true };
+        chart.options.hover = { mode: 'nearest', intersect: true };
         chart.options.plugins.tooltip.position = 'nearest';
       } else {
         chart.options.interaction = { mode: 'nearest', intersect: false };
@@ -1698,13 +2286,182 @@ const ensureChartForMode = (mode, xMode) => {
     const maxDelivery = buildMaxDelivery(events);
 
     // Day modes use business-day real bounds (04:00 -> next 04:00)
-    if (chartMode === 'dayCombined' || chartMode === 'dayStep' || chartMode === 'dayHourly') {
+    if (chartMode === 'dayCombined' || chartMode === 'dayStep' || chartMode === 'dayHourly' || chartMode === 'dayGantt') {
       const bd = state.periodStartBD;
       const bounds = bd ? getBusinessDayRealBounds(bd) : null;
       const start = bounds ? bounds.start : null;
       const end = bounds ? bounds.end : null;
 
-      const hrAmount = new Array(24).fill(0);
+      
+    // --- Gantt mode (daily): request -> dropoff time bars ---
+    if (chartMode === 'dayGantt') {
+      // 1) collect eligible deliveries for the selected business day
+      const itemsAll = [];
+      for (const e of events) {
+        if (e.kind !== 'base') continue;
+        if (!e.rideId) continue;
+        if (!e.requestTime) continue;
+        if (e.deliveryMinutes == null) continue; // requires request+dropoff
+        itemsAll.push(e);
+      }
+      if (!itemsAll.length) {
+        chart.data.labels = ['1'];
+        chart.data.datasets[0].data = [];
+        chart.update();
+        return;
+      }
+
+      // Determine business-day bounds (4:00-4:00)
+      const bd0 = state.periodStartBD || itemsAll[0].businessDate || null;
+      const b2 = bd0 ? getBusinessDayRealBounds(bd0) : null;
+      const start2 = b2 ? b2.start : null;
+      const end2 = b2 ? b2.end : null;
+
+      const items = [];
+      for (const e of itemsAll) {
+        if (start2 && e.time < start2) continue;
+        if (end2 && e.time >= end2) continue;
+        items.push(e);
+      }
+      if (!items.length) {
+        chart.data.labels = ['1'];
+        chart.data.datasets[0].data = [];
+        chart.update();
+        return;
+      }
+
+      items.sort((a,b) => a.requestTime - b.requestTime);
+
+      // 2) Lane assignment (readable order)
+      // - 基本: 依頼時間順に「4件=1レーン」(上→下、左→右で追いやすい)
+      // - ただし同一レーン内で重なりが出る場合は下のレーンへ逃がす
+      // - 最後に「各レーンの最初の依頼時刻」でレーン順を整える（上ほど早い依頼）
+      const laneEnds = [];        // lane -> last end(ms)
+      const laneFirstStart = [];  // lane -> first start(ms)
+      const laneCounts = [];      // lane -> count
+      const pointsTmp = [];
+      const maxKey = maxDelivery ? `${maxDelivery.rideId}|${maxDelivery.time.getTime()}|${maxDelivery.amount}` : null;
+
+      for (let i = 0; i < items.length; i++) {
+        const e = items[i];
+        const s = e.requestTime.getTime();
+        let t = e.time.getTime(); // dropoffTime when deliveryMinutes != null
+        // Ensure minimum visible width (and avoid zero/negative intervals due to data quirks)
+        if (!(t > s)) t = s + 60 * 1000;
+
+        const preferred = Math.floor(i / 4);
+
+        // Ensure lanes exist up to preferred
+        while (laneEnds.length <= preferred) {
+          laneEnds.push(0);
+          laneFirstStart.push(null);
+          laneCounts.push(0);
+        }
+
+        // Find first lane >= preferred that does not overlap
+        let lane = preferred;
+        while (lane < laneEnds.length && laneEnds[lane] > s) lane += 1;
+        if (lane === laneEnds.length) {
+          laneEnds.push(0);
+          laneFirstStart.push(null);
+          laneCounts.push(0);
+        }
+        // Extra safety (should be redundant)
+        while (laneEnds[lane] > s) {
+          lane += 1;
+          if (lane === laneEnds.length) {
+            laneEnds.push(0);
+            laneFirstStart.push(null);
+            laneCounts.push(0);
+          }
+        }
+
+        laneEnds[lane] = t;
+        if (laneFirstStart[lane] === null) laneFirstStart[lane] = s;
+        laneCounts[lane] = (laneCounts[lane] || 0) + 1;
+
+        const key = `${e.rideId}|${e.time.getTime()}|${e.amount}`;
+        pointsTmp.push({
+          x: [s, t],
+          y: String(lane + 1), // temporary (remapped later)
+          laneOld: lane,
+          t,
+          meta: {
+            pickupName: e.pickupName || '',
+            pickupAddr: e.pickupAddr || '',
+            dropoffAddr: e.dropoffAddr || '',
+            deliveryMinutes: e.deliveryMinutes,
+            amount: e.amount,
+            tipAmount: e.tipAmount || 0,
+          },
+          isMax: !!(maxKey && key === maxKey),
+        });
+      }
+
+      // Remap lanes by earliest request time (stable)
+      const laneCount = laneEnds.length;
+      const ordered = Array.from({ length: laneCount }, (_, idx) => ({
+        idx,
+        first: (laneFirstStart[idx] === null) ? Number.POSITIVE_INFINITY : laneFirstStart[idx],
+      })).sort((a, b) => (a.first - b.first) || (a.idx - b.idx));
+
+      const laneMap = new Map();
+      ordered.forEach((o, newIdx) => laneMap.set(o.idx, newIdx));
+
+      const points = pointsTmp.map(p => ({
+        ...p,
+        y: String(((laneMap.get(p.laneOld) ?? p.laneOld) + 1)),
+      }));
+
+
+      // Labels for lanes (hidden, but required by category scale)
+      chart.data.labels = Array.from({length: Math.max(1, laneEnds.length)}, (_,i) => String(i+1));
+      chart.data.datasets[0].data = points;
+
+      // Fix x-range to business day bounds if available
+      if (start2) chart.options.scales.x.min = start2.getTime();
+      if (end2) chart.options.scales.x.max = end2.getTime();
+
+      // Tooltip like '配達（ポイント）'
+      chart.options.plugins.tooltip.callbacks = {
+        title: (items) => {
+          if (!items || !items.length) return '';
+          const raw = items[0].raw || {};
+          const s = raw && raw.x ? raw.x[0] : null;
+          const t = raw && raw.x ? raw.x[1] : null;
+          if (s && t) {
+            return `${new Date(s).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})} → ${new Date(t).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})}`;
+          }
+          return '';
+        },
+        label: (ctx) => {
+          const raw = ctx.raw || {};
+          const meta = raw.meta || {};
+          const lines = [];
+          if (meta.pickupName) lines.push(`店舗: ${meta.pickupName}`);
+          if (meta.pickupAddr) {
+            const s = shortPickupAddr(meta.pickupAddr);
+            if (s) lines.push(`店舗住所: ${s}`);
+          }
+          if (!state.hideDropoff) {
+            const dropShort = formatDropoffDisplay(meta.dropoffAddr);
+            if (dropShort) lines.push(`降車: ${dropShort}`);
+          }
+          const dur = formatDuration(meta.deliveryMinutes);
+          if (dur) lines.push(`配達時間: ${dur}`);
+          lines.push(`報酬: ${fmtYen(meta.amount)}`);
+          if (meta.tipAmount && meta.tipAmount > 0) lines.push(`チップ: ${fmtYen(meta.tipAmount)}`);
+          const wageLine = formatWageLine(meta.amount, meta.deliveryMinutes);
+          if (wageLine) lines.push(wageLine);
+          return lines;
+        },
+      };
+
+      chart.update();
+      return;
+    }
+
+const hrAmount = new Array(24).fill(0);
       const hrCount = new Array(24).fill(0);
       const hrAmountData = [];
       const hrCountData = [];
@@ -1831,7 +2588,7 @@ const ensureChartForMode = (mode, xMode) => {
         label: (ctx) => {
           if (chartMode === 'dayCombined') {
             if (ctx.datasetIndex === 0) return `配達報酬（累積）: ${fmtYen(ctx.parsed.y)}`;
-            if (ctx.datasetIndex === 1) return `プロモーション（累積）: ${fmtYen(ctx.parsed.y)}`;
+            if (ctx.datasetIndex === 1) return `プロモその他（累積）: ${fmtYen(ctx.parsed.y)}`;
             if (ctx.datasetIndex === 2) return `時間別報酬: ${fmtYen(ctx.parsed.y)}`;
             if (ctx.datasetIndex === 3) return `時間別件数: ${ctx.parsed.y}件`;
             if (ctx.datasetIndex === 4) return `平均時給: ${fmtYen(ctx.parsed.y)}`;
@@ -1839,7 +2596,7 @@ const ensureChartForMode = (mode, xMode) => {
             if (ctx.datasetIndex === 6) return `最高報酬の配達`;
           } else if (chartMode === 'dayStep') {
             if (ctx.datasetIndex === 0) return `配達報酬（累積）: ${fmtYen(ctx.parsed.y)}`;
-            if (ctx.datasetIndex === 1) return `プロモーション（累積）: ${fmtYen(ctx.parsed.y)}`;
+            if (ctx.datasetIndex === 1) return `プロモその他（累積）: ${fmtYen(ctx.parsed.y)}`;
             if (ctx.datasetIndex === 2) return `最高報酬の配達`;
           } else if (chartMode === 'dayHourly') {
             if (ctx.datasetIndex === 0) return `時間別報酬: ${fmtYen(ctx.parsed.y)}`;
@@ -1858,13 +2615,20 @@ const ensureChartForMode = (mode, xMode) => {
           if (!meta) return '';
           const lines = [];
           if (meta.pickupName) lines.push(`店舗: ${meta.pickupName}`);
+          if (meta.pickupAddr) {
+            const s = shortPickupAddr(meta.pickupAddr);
+            if (s) lines.push(`店舗住所: ${s}`);
+          }
           if (!state.hideDropoff) {
-            const dropShort = extractWardTown(meta.dropoffAddr) || meta.dropoffAddr || '';
+            const dropShort = formatDropoffDisplay(meta.dropoffAddr);
             if (dropShort) lines.push(`降車: ${dropShort}`);
           }
           const dur = formatDuration(meta.deliveryMinutes);
           if (dur) lines.push(`配達時間: ${dur}`);
           lines.push(`報酬: ${fmtYen(meta.amount)}`);
+          if (meta.tipAmount && meta.tipAmount > 0) lines.push(`チップ: ${fmtYen(meta.tipAmount)}`);
+          const wageLine = formatWageLine(meta.amount, meta.deliveryMinutes);
+          if (wageLine) lines.push(wageLine);
           return lines;
         }
       };
@@ -1876,6 +2640,12 @@ const ensureChartForMode = (mode, xMode) => {
 
     // cumulative (existing behavior, with optional omit-idle compression)
     const keptInfo = omitIdle ? computeKeptHours(events) : null;
+    // bounds for omit-idle compression (virtual hours)
+    if (omitIdle && keptInfo && keptInfo.sortedHours) {
+      state.virtualXBounds = { minX: 0, maxX: Math.max(1, keptInfo.sortedHours.length) };
+    } else {
+      state.virtualXBounds = null;
+    }
     const indexByHour = omitIdle ? keptInfo.indexByHour : (activeHoursInfo ? activeHoursInfo.indexByHour : new Map());
 
     let baseCum = 0;
@@ -1937,7 +2707,7 @@ const ensureChartForMode = (mode, xMode) => {
       },
       label: (ctx) => {
         if (ctx.datasetIndex === 0) return `配達報酬（累積）: ${fmtYen(ctx.parsed.y)}`;
-        if (ctx.datasetIndex === 1) return `プロモーション（累積）: ${fmtYen(ctx.parsed.y)}`;
+        if (ctx.datasetIndex === 1) return `プロモその他（累積）: ${fmtYen(ctx.parsed.y)}`;
         if (ctx.datasetIndex === 2) return `配達（詳細）`;
         if (ctx.datasetIndex === 3) return `最高報酬の配達`;
         return '';
@@ -1951,17 +2721,25 @@ const ensureChartForMode = (mode, xMode) => {
         if (!meta) return '';
         const lines = [];
         if (meta.pickupName) lines.push(`店舗: ${meta.pickupName}`);
+        if (meta.pickupAddr) {
+          const s = shortPickupAddr(meta.pickupAddr);
+          if (s) lines.push(`店舗住所: ${s}`);
+        }
         if (!state.hideDropoff) {
-        const dropShort = extractWardTown(meta.dropoffAddr) || meta.dropoffAddr || '';
+        const dropShort = formatDropoffDisplay(meta.dropoffAddr);
         if (dropShort) lines.push(`降車: ${dropShort}`);
       }
         const dur = formatDuration(meta.deliveryMinutes);
         if (dur) lines.push(`配達時間: ${dur}`);
         lines.push(`報酬: ${fmtYen(meta.amount)}`);
+          if (meta.tipAmount && meta.tipAmount > 0) lines.push(`チップ: ${fmtYen(meta.tipAmount)}`);
+          const wageLine = formatWageLine(meta.amount, meta.deliveryMinutes);
+          if (wageLine) lines.push(wageLine);
         return lines;
       }
     };
 
+    applyChartViewport(chart);
     chart.update();
   };
 
@@ -1977,39 +2755,78 @@ const formatHM = (minutes) => {
     let base = 0, promo = 0, trips = 0;
     const baseEvents = [];
 
+    // Breakdown for "プロモその他" sublabel
+    let tipTotal = 0;
+    let questTotal = 0;
+    const seenRide = new Set();
+
+    const questAmountFrom = (e) => {
+      if (!e) return 0;
+      const qAmt = Number(e.questAmount || 0);
+      if (Number.isFinite(qAmt) && qAmt > 0) return qAmt;
+      const note = (e.note || '').toString();
+      if (note && /クエスト|quest/i.test(note)) return Number(e.amount || 0);
+      return 0;
+    };
+
     for (const e of events) {
       if (e.kind === 'base') {
         base += e.amount;
         if (e.rideId) trips += 1;
         baseEvents.push(e);
+
+        if (e.rideId && !seenRide.has(e.rideId)) {
+          seenRide.add(e.rideId);
+          if ((e.tipAmount || 0) > 0) tipTotal += (e.tipAmount || 0);
+        }
       } else if (e.kind === 'promo') {
         promo += e.amount;
+        questTotal += questAmountFrom(e);
       }
     }
+
+    questTotal = Math.min(promo, questTotal);
+    const promoOther = Math.max(0, promo - questTotal);
+
+    // NOTE: base already includes tip amounts (rideId-linked payments). We split it in summary.
+    // Keep total consistent with existing logic.
+    const totalAll = base + promo;
+    const baseNoTip = (Number.isFinite(base) ? base : 0) - (Number.isFinite(tipTotal) ? tipTotal : 0);
+    const baseFare = baseNoTip < 0 ? base : baseNoTip;
 
     const activeInfo = computeActiveHours(baseEvents);
     const activeMinutes = activeInfo.activeMinutes || 0;
 
-    statBase.textContent = fmtYen(base);
+    statBase.textContent = fmtYen(baseFare);
+    if (statTip) statTip.textContent = fmtYen(tipTotal);
     statPromo.textContent = fmtYen(promo);
-    statTotal.textContent = fmtYen(base + promo);
+    if (statPromoBreakdown) {
+      if (events && events.length) {
+        statPromoBreakdown.innerHTML =
+          `内訳: クエスト ${fmtYen(questTotal)} / その他 ${fmtYen(promoOther)}`;
+      } else {
+        statPromoBreakdown.textContent = '-';
+      }
+    }
+
+    statTotal.textContent = fmtYen(totalAll);
     statTrips.textContent = trips.toLocaleString();
     statActiveHours.textContent = activeMinutes ? formatHM(activeMinutes) : '-';
 
     if (activeMinutes > 0) {
       const hours = activeMinutes / 60;
-      const hourlyNoPromo = base / hours;
-      const hourlyWithPromo = (base + promo) / hours;
+      const hourlyNoPromo = baseFare / hours;
+      const hourlyAll = totalAll / hours;
       setText(statHourly, fmtYen(hourlyNoPromo));
-      setText(statHourlyWithPromo, `promo込 ${fmtYen(hourlyWithPromo)}`);
+      setText(statHourlyWithPromo, `チップ+プロモ込 ${fmtYen(hourlyAll)}`);
       const tph = trips / hours;
       setText(statTripsPerHour, tph.toFixed(2));
 
       if (trips > 0) {
-        const unitNoPromo = base / trips;
-        const unitWithPromo = (base + promo) / trips;
+        const unitNoPromo = baseFare / trips;
+        const unitAll = totalAll / trips;
         setText(statUnit, fmtYen(unitNoPromo));
-        setText(statUnitWithPromo, `promo込 ${fmtYen(unitWithPromo)}`);
+        setText(statUnitWithPromo, `チップ+プロモ込 ${fmtYen(unitAll)}`);
       } else {
         setText(statUnit, '-');
         setText(statUnitWithPromo, '-');
@@ -2033,7 +2850,22 @@ const formatHM = (minutes) => {
         dropMs: e.time.getTime(),
         kindLabel: '配達報酬',
         amount: e.amount,
+        tipAmount: e.tipAmount || 0,
+        questAmount: e.questAmount || 0,
         pickupDisplay: e.pickupName || storeNameFromAddress(e.pickupAddr || ''),
+        rideId: e.rideId,
+        txnIds: e.txnIds || [],
+        payNote: e.note || '',
+        rawPickup: (e.pickupAddr || ''),
+        pickupZip: extractZipFromText(e.pickupAddr || ''),
+        pickupAddrShort: (() => {
+          const z = (extractZipFromText(e.pickupAddr || '') || '').toString().trim();
+          if (z && state.zipDictReady) {
+            const s = kanjiShortFromZip(z);
+            if (s) return s;
+          }
+          return shortPickupAddr(e.pickupAddr || '');
+        })(),
         dropoffRaw: (e.dropoffAddr || ''),
         dropoffZip: (() => {
           const src = (e.dropoffAddr || e.rawDropoff || e.dropoffRaw || '');
@@ -2152,7 +2984,13 @@ const formatHM = (minutes) => {
 
       const tdAmt = document.createElement('td');
       tdAmt.className = 'num';
-      tdAmt.textContent = Math.round(r.amount).toLocaleString('ja-JP') + '円';
+      const amtMain = Math.round(r.amount).toLocaleString('ja-JP') + '円';
+      if (r.tipAmount && r.tipAmount > 0) {
+        const tipLine = Math.round(r.tipAmount).toLocaleString('ja-JP') + '円';
+        tdAmt.innerHTML = `<div>${amtMain}</div><div class="small muted">チップ ${tipLine}</div>`;
+      } else {
+        tdAmt.textContent = amtMain;
+      }
       tr.appendChild(tdAmt);
 
       const tdWage = document.createElement('td');
@@ -2164,6 +3002,8 @@ const formatHM = (minutes) => {
 
       const tdPickup = document.createElement('td');
       tdPickup.textContent = r.pickupDisplay || '';
+      const pickupTitleAddr = (r.pickupAddrShort || shortPickupAddr(r.rawPickup || '') || '').toString().trim();
+      if (pickupTitleAddr) tdPickup.title = `店舗住所: ${pickupTitleAddr}`;
       tdPickup.classList.add('clickableCell');
       tdPickup.dataset.rawKey = 'pickup';
       tr.appendChild(tdPickup);
@@ -2184,6 +3024,23 @@ const formatHM = (minutes) => {
       tdZip.dataset.rawKey = 'zip';
       tr.appendChild(tdZip);
 
+      const tdMap = document.createElement('td');
+      if (!state.hideDropoff) {
+        const origin = (r.pickupAddrShort || shortPickupAddr(r.rawPickup || '') || r.pickupDisplay || '').toString().trim();
+        const dest = (r.dropoffZip ? (`〒${r.dropoffZip}`) : (r.dropoffDisplay || '')).toString().trim();
+        if (origin && dest) {
+          const a = document.createElement('a');
+          a.href = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(dest)}`;
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.className = 'mapLink';
+          a.textContent = 'Map';
+          a.title = `Google Mapsで概算ルートを表示\n店舗: ${origin}\n降車: ${dest}`;
+          tdMap.appendChild(a);
+        }
+      }
+      tr.appendChild(tdMap);
+
       frag.appendChild(tr);
     }
 
@@ -2198,10 +3055,797 @@ const formatHM = (minutes) => {
     detailNote.textContent = note.join(' / ');
   };
 
-  // ====== Main refresh ======
+  // ===== Daily Route (approx) =====
+  const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+
+  const buildMapsDirUrl = ({ origin, destination, waypoints }) => {
+    const o = (origin || '').toString().trim();
+    const d = (destination || '').toString().trim();
+    if (!o || !d) return '';
+    const parts = [];
+    parts.push('https://www.google.com/maps/dir/?api=1');
+    parts.push(`origin=${encodeURIComponent(o)}`);
+    parts.push(`destination=${encodeURIComponent(d)}`);
+    if (waypoints && waypoints.length) {
+      const wp = waypoints.map(x => (x || '').toString().trim()).filter(Boolean);
+      if (wp.length) parts.push(`waypoints=${encodeURIComponent(wp.join('|'))}`);
+    }
+    return parts.join('&');
+  };
+
+  const getMapsOriginText = (r) => {
+    const z = (r.pickupZip || '').toString().trim();
+    if (state.routeZipOnly && z) return `〒${z}`;
+    return (r.pickupAddrShort || shortPickupAddr(r.rawPickup || '') || r.pickupDisplay || '').toString().trim();
+  };
+  const getMapsDestText = (r) => {
+    const z = (r.dropoffZip || '').toString().trim();
+    if (state.routeZipOnly && z) return `〒${z}`;
+    return (r.dropoffDisplay || '').toString().trim();
+  };
+
+  const buildRouteTripsForSelectedDay = (eventsAll, businessDateStrVal) => {
+    const bounds = getBusinessDayRealBounds(businessDateStrVal);
+    if (!bounds) return [];
+
+    const base = eventsAll
+      .filter(e => e.kind === 'base' && e.requestTime)
+      .slice()
+      .sort((a, b) => a.requestTime.getTime() - b.requestTime.getTime());
+
+    if (!base.length) return [];
+
+    const inDayIdx = [];
+    for (let i = 0; i < base.length; i++) {
+      const ms = base[i].requestTime.getTime();
+      if (ms >= bounds.start.getTime() && ms < bounds.end.getTime()) inDayIdx.push(i);
+    }
+    if (!inDayIdx.length) return [];
+
+    // Expand to session: if 4:00 is crossed but requests are within 6h gaps, keep as one group.
+    let lo = inDayIdx[0];
+    let hi = inDayIdx[inDayIdx.length - 1];
+    while (lo > 0) {
+      const gap = base[lo].requestTime.getTime() - base[lo - 1].requestTime.getTime();
+      if (gap >= SIX_HOURS_MS) break;
+      lo -= 1;
+    }
+    while (hi < base.length - 1) {
+      const gap = base[hi + 1].requestTime.getTime() - base[hi].requestTime.getTime();
+      if (gap >= SIX_HOURS_MS) break;
+      hi += 1;
+    }
+
+    return base.slice(lo, hi + 1);
+  };
+
+  const buildRouteLocations = (detailRows) => {
+    // Build chronological events: request(pickup) and dropoff(drop)
+    const events = [];
+    for (const r of detailRows) {
+      if (r.reqMs && getMapsOriginText(r)) {
+        events.push({ t: r.reqMs, kind: 'req', text: getMapsOriginText(r), key: getMapsOriginText(r) });
+      }
+      if (r.dropMs && getMapsDestText(r)) {
+        const dest = getMapsDestText(r);
+        const key = (r.dropoffZip ? (`zip:${normalizeZip7(r.dropoffZip)}`) : ('addr:' + dest));
+        events.push({ t: r.dropMs, kind: 'drop', text: dest, key });
+      }
+    }
+    events.sort((a, b) => {
+      if (a.t !== b.t) return a.t - b.t;
+      // same time: request first
+      if (a.kind === b.kind) return 0;
+      return a.kind === 'req' ? -1 : 1;
+    });
+
+    // Compress consecutive same locations
+    const locs = [];
+    for (const e of events) {
+      if (!locs.length || locs[locs.length - 1].key !== e.key) locs.push({ key: e.key, text: e.text });
+    }
+    return locs.map(x => x.text);
+  };
+
+  const splitRouteIntoMapLinks = (locTexts) => {
+    const MAX_WAYPOINTS_SAFE = 20;
+    const MAX_URL_LEN_SAFE = 1800;
+
+    const links = [];
+    const locs = (locTexts || []).map(x => (x || '').toString().trim()).filter(Boolean);
+    if (locs.length < 2) return links;
+
+    let cur = [locs[0]];
+    for (let i = 1; i < locs.length; i++) {
+      const next = locs[i];
+      const test = cur.concat([next]);
+      const waypoints = test.slice(1, test.length - 1);
+      const url = buildMapsDirUrl({ origin: test[0], destination: test[test.length - 1], waypoints });
+      const tooManyWaypoints = waypoints.length > MAX_WAYPOINTS_SAFE;
+      const tooLong = url.length > MAX_URL_LEN_SAFE;
+
+      if ((tooManyWaypoints || tooLong) && cur.length >= 2) {
+        // finalize current
+        const wps = cur.slice(1, cur.length - 1);
+        links.push({ origin: cur[0], destination: cur[cur.length - 1], waypoints: wps, points: cur.length });
+        // start new segment with overlap
+        cur = [cur[cur.length - 1], next];
+      } else {
+        cur.push(next);
+      }
+    }
+    if (cur.length >= 2) {
+      const wps = cur.slice(1, cur.length - 1);
+      links.push({ origin: cur[0], destination: cur[cur.length - 1], waypoints: wps, points: cur.length });
+    }
+    return links;
+  };
+
+  const renderDailyRoute = (eventsAll) => {
+    if (!routeDetails || !routeTbody || !routeLinks || !routeMeta) return;
+
+    const show = state.lastRange === 'day';
+    routeDetails.style.display = show ? '' : 'none';
+    if (show) routeDetails.open = true;
+    if (!show) return;
+
+    routeTbody.innerHTML = '';
+    routeLinks.innerHTML = '';
+    routeMeta.textContent = '';
+    if (routeZipOnly) routeZipOnly.checked = !!state.routeZipOnly;
+
+    if (!state.periodStartBD) {
+      routeMeta.textContent = '日次が選択されていません。';
+      return;
+    }
+
+    const sessionTrips = buildRouteTripsForSelectedDay(eventsAll, state.periodStartBD);
+    if (!sessionTrips.length) {
+      routeMeta.textContent = 'この日のデータがありません。';
+      return;
+    }
+
+    const detailRows = buildDetailRows(sessionTrips);
+    detailRows.sort((a, b) => (a.reqMs || 0) - (b.reqMs || 0));
+
+    const startReq = sessionTrips.reduce((m, e) => {
+      const t = e.requestTime ? e.requestTime.getTime() : null;
+      if (!t) return m;
+      return (m === null || t < m) ? t : m;
+    }, null);
+    const endDrop = sessionTrips.reduce((m, e) => {
+      const t = e.time ? e.time.getTime() : null;
+      if (!t) return m;
+      return (m === null || t > m) ? t : m;
+    }, null);
+
+    const startTxt = startReq ? ymdHm(new Date(startReq)) : '';
+    const endTxt = endDrop ? ymdHm(new Date(endDrop)) : '';
+    const extra = (() => {
+      const bounds = getBusinessDayRealBounds(state.periodStartBD);
+      if (!bounds) return '';
+      const s = bounds.start.getTime();
+      const e = bounds.end.getTime();
+      if ((startReq && startReq < s) || (endDrop && endDrop > e)) return '（4:00を跨いだ稼働を6時間空白で連結）';
+      return '';
+    })();
+    routeMeta.textContent = `稼働: ${startTxt} 〜 ${endTxt} / ${detailRows.length.toLocaleString()}件 ${extra}`.trim();
+
+    // Map links for the full sequence (compressed + split)
+    if (!state.hideDropoff) {
+      const locs = buildRouteLocations(detailRows);
+      const segments = splitRouteIntoMapLinks(locs);
+      if (segments.length) {
+        const fragL = document.createDocumentFragment();
+        segments.forEach((seg, idx) => {
+          const url = buildMapsDirUrl(seg);
+          const a = document.createElement('a');
+          a.href = url;
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.className = 'mapLink';
+          a.textContent = `ルート${idx + 1}`;
+          a.title = `Google Mapsで概算ルートを表示（地点 ${seg.points}）`;
+          fragL.appendChild(a);
+        });
+        routeLinks.appendChild(fragL);
+      }
+    }
+
+    // Table
+    const frag = document.createDocumentFragment();
+    for (const r of detailRows) {
+      const tr = document.createElement('tr');
+
+      const tdReq = document.createElement('td');
+      tdReq.textContent = r.reqMs ? hhMm(new Date(r.reqMs)) : '';
+      tr.appendChild(tdReq);
+
+      const tdPick = document.createElement('td');
+      tdPick.textContent = r.pickupDisplay || '';
+      tdPick.classList.add('clickableCell');
+      if (r.pickupAddrShort) tdPick.title = `店舗住所: ${r.pickupAddrShort}`;
+      tr.appendChild(tdPick);
+
+      const tdDrop = document.createElement('td');
+      tdDrop.textContent = r.dropMs ? hhMm(new Date(r.dropMs)) : '';
+      tr.appendChild(tdDrop);
+
+      const tdDropAddr = document.createElement('td');
+      tdDropAddr.textContent = state.hideDropoff ? '' : (r.dropoffDisplay || '');
+      tr.appendChild(tdDropAddr);
+
+      const tdMap = document.createElement('td');
+      if (!state.hideDropoff) {
+        const origin = getMapsOriginText(r);
+        const dest = getMapsDestText(r);
+        if (origin && dest) {
+          const a = document.createElement('a');
+          a.href = buildMapsDirUrl({ origin, destination: dest, waypoints: [] });
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.className = 'mapLink';
+          a.textContent = 'Map';
+          a.addEventListener('click', (ev) => ev.stopPropagation());
+          tdMap.appendChild(a);
+        }
+      }
+      tr.appendChild(tdMap);
+
+      const dur = formatDuration(r.deliveryMinutes);
+      const wageLine = formatWageLine(r.amount, r.deliveryMinutes);
+      const tipLines = [];
+      if (dur) tipLines.push(`配達時間: ${dur}`);
+      tipLines.push(`金額: ${fmtYen(r.amount)}`);
+      if (wageLine) tipLines.push(wageLine);
+      if (r.tipAmount && r.tipAmount > 0) tipLines.push(`チップ: ${fmtYen(r.tipAmount)}`);
+      if (wageLine) tipLines.push(wageLine);
+      tr.title = tipLines.join('\n');
+
+      tr.addEventListener('click', () => {
+        const title = `配達（ルート）`;
+        const shown = [
+          r.reqMs ? (`依頼: ${ymdHm(new Date(r.reqMs))}`) : '依頼: -',
+          `店舗: ${(r.pickupDisplay || '').toString()}`,
+          r.dropMs ? (`降車: ${ymdHm(new Date(r.dropMs))}`) : '降車: -',
+          state.hideDropoff ? '降車: （非表示）' : (`降車: ${(r.dropoffDisplay || '').toString()}`),
+          dur ? `配達時間: ${dur}` : '',
+          `金額: ${fmtYen(r.amount)}`,
+          (r.tipAmount && r.tipAmount > 0) ? `チップ: ${fmtYen(r.tipAmount)}` : '',
+          wageLine || ''
+        ].filter(Boolean).join('\n');
+        const rawLines = [
+          `rideId: ${r.rideId || ''}`,
+          r.reqMs ? (`requestTime: ${new Date(r.reqMs).toISOString()}`) : 'requestTime: ',
+          r.dropMs ? (`dropoffTime: ${new Date(r.dropMs).toISOString()}`) : 'dropoffTime: ',
+          `pickupAddr(raw): ${r.rawPickup || ''}`,
+          `pickupShort: ${r.pickupAddrShort || ''}`,
+          `dropoffAddr(raw): ${r.dropoffRaw || ''}`,
+          `dropoffShort: ${state.hideDropoff ? '' : (r.dropoffDisplay || '')}`,
+          `amount: ${r.amount}`,
+          `tipAmount: ${r.tipAmount || 0}`,
+          `deliveryMinutes: ${r.deliveryMinutes || ''}`,
+          `txnIds: ${(r.txnIds || []).join(',')}`,
+          `payNote: ${r.payNote || ''}`
+        ];
+	        // NOTE: Keep join argument as a literal "\\n". A stray newline here breaks parsing and prevents CSV loading.
+	        openRawModal({ title, shown, raw: rawLines.join('\\n') });
+      });
+
+      frag.appendChild(tr);
+    }
+    routeTbody.appendChild(frag);
+  };
+
+  
+
+  // ===== Cancels / failed trips list =====
+  const getMaxBusinessDateFromTrips = () => {
+    let maxBD = '';
+    for (const t of state.tripsByRideId.values()) {
+      const dt = t.dropoffTime || t.requestTime;
+      if (!dt) continue;
+      const bd = businessDateStr(dt);
+      if (!maxBD || bd > maxBD) maxBD = bd;
+    }
+    return maxBD || null;
+  };
+
+  const getRangeBoundsForTrips = (rangeKey) => {
+    const maxBD = state.dataMaxBD || getMaxBusinessDateFromTrips();
+    if (!maxBD) return null;
+
+    if (rangeKey === 'all') return { start: null, end: null };
+
+    let start = null;
+    let end = null;
+
+    if (rangeKey === 'custom') {
+      const sBD = state.periodStartBD || maxBD;
+      const eBD = state.periodEndBD || maxBD;
+      const sD = dateFromBusinessStr(sBD);
+      const eD = dateFromBusinessStr(eBD);
+      if (!sD || !eD) return null;
+      start = sD;
+      end = addDays(eD, 1);
+      return { start, end };
+    }
+
+    const startBD = state.periodStartBD || maxBD;
+    const startDate = dateFromBusinessStr(startBD);
+    if (!startDate) return null;
+
+    if (rangeKey === 'day') {
+      start = startDate;
+      end = addDays(start, 1);
+    } else if (rangeKey === 'week') {
+      const mondayBD = clampWeekStartMondayStr(startBD);
+      state.periodStartBD = mondayBD;
+      try { periodStart.value = mondayBD; } catch {}
+      start = dateFromBusinessStr(mondayBD);
+      end = addDays(start, 7);
+    } else if (rangeKey === 'month') {
+      const firstBD = clampMonthStartStr(startBD);
+      state.periodStartBD = firstBD;
+      try { periodStart.value = firstBD; } catch {}
+      start = dateFromBusinessStr(firstBD);
+      end = addMonths(start, 1);
+    }
+
+    return { start, end };
+  };
+
+  const renderCancels = (eventsAll) => {
+    if (!cancelDetails || !cancelTbody || !cancelMeta) return;
+
+    const hasTrips = !!(state.tripsByRideId && state.tripsByRideId.size);
+    cancelDetails.style.display = hasTrips ? '' : 'none';
+    if (!hasTrips) return;
+
+    cancelTbody.innerHTML = '';
+    cancelMeta.textContent = '';
+    if (cancelBadge) cancelBadge.textContent = '0';
+
+    const rangeKey = state.lastRange || 'week';
+    const bounds = (eventsAll && eventsAll.length)
+      ? getRangeBounds(eventsAll, rangeKey)
+      : getRangeBoundsForTrips(rangeKey);
+
+    // Aggregate payments by rideId (for tooltip/modal only)
+    const payByRide = new Map();
+    for (const p of state.paymentsByTxnId.values()) {
+      if (!p.rideId) continue;
+      const prev = payByRide.get(p.rideId) || { amount: 0, txnIds: [], notes: [], lastPaymentTime: null };
+      prev.amount += p.amount;
+      prev.txnIds.push(p.txnId);
+      if (p.note) prev.notes.push(p.note);
+      if (!prev.lastPaymentTime || (p.paymentTime && p.paymentTime > prev.lastPaymentTime)) prev.lastPaymentTime = p.paymentTime;
+      payByRide.set(p.rideId, prev);
+    }
+
+    const rows = [];
+    let unknownTime = 0;
+    let stFailed = 0, stCancelled = 0, stOther = 0;
+
+    for (const t of state.tripsByRideId.values()) {
+      const stRaw = (t.status || '').toString().trim();
+      const st = stRaw.toLowerCase();
+      if (!st || st === 'completed') continue;
+
+      if (st === 'failed') stFailed++;
+      else if (st === 'rider_cancelled' || st === 'rider cancelled' || st === 'cancelled') stCancelled++;
+      else stOther++;
+
+      const dt = t.requestTime || t.dropoffTime;
+      if (!dt) { unknownTime++; continue; }
+
+      if (bounds && (bounds.start || bounds.end)) {
+        const bd = businessDateStr(dt);
+        const bdDate = dateFromBusinessStr(bd);
+        if (!bdDate) continue;
+        if (bounds.start && bdDate < bounds.start) continue;
+        if (bounds.end && bdDate >= bounds.end) continue;
+      }
+
+      const pay = payByRide.get(t.rideId) || { amount: 0, txnIds: [], notes: [], lastPaymentTime: null };
+
+      rows.push({
+        rideId: t.rideId,
+        requestTime: t.requestTime,
+        dropoffTime: t.dropoffTime,
+        status: stRaw,
+        statusKey: st,
+        pickupName: t.pickupName || '',
+        pickupAddr: t.pickupAddr || '',
+        dropoffAddr: t.dropoffAddr || '',
+        amount: pay.amount || 0,
+        txnIds: pay.txnIds || [],
+        notes: pay.notes || [],
+      });
+    }
+
+    rows.sort((a, b) => {
+      const am = a.requestTime ? a.requestTime.getTime() : (a.dropoffTime ? a.dropoffTime.getTime() : 0);
+      const bm = b.requestTime ? b.requestTime.getTime() : (b.dropoffTime ? b.dropoffTime.getTime() : 0);
+      return am - bm;
+    });
+
+    const total = rows.length;
+    if (cancelBadge) cancelBadge.textContent = total.toLocaleString('ja-JP');
+
+    const meta = [];
+    meta.push(`表示期間内: ${total.toLocaleString('ja-JP')}件`);
+    meta.push(`内訳: failed ${stFailed.toLocaleString('ja-JP')} / cancelled ${stCancelled.toLocaleString('ja-JP')} / other ${stOther.toLocaleString('ja-JP')}`);
+    if (unknownTime) meta.push(`時刻不明 ${unknownTime.toLocaleString('ja-JP')}件（一覧から除外）`);
+    cancelMeta.textContent = meta.join(' / ');
+
+    const MAX = 400;
+    const frag = document.createDocumentFragment();
+
+    for (const r of rows.slice(0, MAX)) {
+      const tr = document.createElement('tr');
+
+      const tdReq = document.createElement('td');
+      tdReq.textContent = r.requestTime ? hhMm(r.requestTime) : (r.dropoffTime ? hhMm(r.dropoffTime) : '');
+      tr.appendChild(tdReq);
+
+      const tdSt = document.createElement('td');
+      tdSt.textContent = r.status || '';
+      tr.appendChild(tdSt);
+
+      const tdPick = document.createElement('td');
+      tdPick.textContent = r.pickupName || '';
+      const pShort = (shortPickupAddr(r.pickupAddr || '') || '').toString().trim();
+      if (pShort) tdPick.title = `店舗住所: ${pShort}`;
+      tr.appendChild(tdPick);
+
+      const tdDrop = document.createElement('td');
+      tdDrop.textContent = state.hideDropoff ? '' : (formatDropoffDisplay(r.dropoffAddr || '') || '');
+      tr.appendChild(tdDrop);
+
+      // Tooltip
+      const tipLines = [];
+      if (r.requestTime) tipLines.push(`依頼: ${ymdHm(r.requestTime)}`);
+      if (r.dropoffTime) tipLines.push(`降車: ${ymdHm(r.dropoffTime)}`);
+      if (r.pickupName) tipLines.push(`店舗: ${r.pickupName}`);
+      if (!state.hideDropoff) {
+        const dd = formatDropoffDisplay(r.dropoffAddr || '');
+        if (dd) tipLines.push(`降車: ${dd}`);
+      }
+      tipLines.push(`金額: ${fmtYen(r.amount || 0)}`);
+      tr.title = tipLines.join('\n');
+
+      tr.addEventListener('click', () => {
+        const title = `キャンセル等`;
+        const shown = [
+          r.requestTime ? (`依頼: ${ymdHm(r.requestTime)}`) : '依頼: -',
+          r.dropoffTime ? (`降車: ${ymdHm(r.dropoffTime)}`) : '降車: -',
+          `ステータス: ${r.status || ''}`,
+          `店舗: ${r.pickupName || ''}`,
+          state.hideDropoff ? '降車: （非表示）' : (`降車: ${formatDropoffDisplay(r.dropoffAddr || '') || ''}`),
+          `金額: ${fmtYen(r.amount || 0)}`,
+        ].filter(Boolean).join('\n');
+
+        const rawLines = [
+          `rideId: ${r.rideId}`,
+          `status: ${r.status || ''}`,
+          r.requestTime ? (`requestTime: ${r.requestTime.toISOString()}`) : 'requestTime: ',
+          r.dropoffTime ? (`dropoffTime: ${r.dropoffTime.toISOString()}`) : 'dropoffTime: ',
+          `pickupAddr(raw): ${r.pickupAddr || ''}`,
+          `pickupShort: ${shortPickupAddr(r.pickupAddr || '') || ''}`,
+          `dropoffAddr(raw): ${state.hideDropoff ? '' : (r.dropoffAddr || '')}`,
+          `dropoffShort: ${state.hideDropoff ? '' : (formatDropoffDisplay(r.dropoffAddr || '') || '')}`,
+          `amount(sum): ${r.amount || 0}`,
+          `txnIds: ${(r.txnIds || []).join(',')}`,
+          `notes: ${(r.notes || []).join(' / ')}`,
+        ];
+
+        openRawModal({ title, shown, raw: rawLines.join('\n') });
+      });
+
+      frag.appendChild(tr);
+    }
+
+    cancelTbody.appendChild(frag);
+
+    if (rows.length > MAX) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 4;
+      td.className = 'muted small';
+      td.textContent = `表示は先頭${MAX.toLocaleString('ja-JP')}件まで（以降省略）`;
+      tr.appendChild(td);
+      cancelTbody.appendChild(tr);
+    }
+  };
+
+
+
+  // ===== Quest rendering =====
+  const mdHm = (d) => {
+    if (!d) return '';
+    const mm = d.getMonth() + 1;
+    const dd = d.getDate();
+    return `${mm}/${dd} ${hhMm(d)}`;
+  };
+
+  const parseQuestNote = (note) => {
+    const s = (note || '').toString();
+    if (!s) return null;
+    if (!/クエスト|quest/i.test(s)) return null;
+
+    const dtRe = /(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日\s*(午前|午後)\s*(\d{1,2}):(\d{2})(?::(\d{2}))?/g;
+    const dts = [];
+    let m;
+    while ((m = dtRe.exec(s)) && dts.length < 2) {
+      const y = Number(m[1]);
+      const mo = Number(m[2]);
+      const da = Number(m[3]);
+      const ap = m[4];
+      let hh = Number(m[5]);
+      const mi = Number(m[6]);
+      const ss = m[7] ? Number(m[7]) : 0;
+      if (ap === '午後' && hh < 12) hh += 12;
+      if (ap === '午前' && hh === 12) hh = 0;
+      const dt = new Date(y, mo - 1, da, hh, mi, ss, 0);
+      if (!Number.isNaN(dt.getTime())) dts.push(dt);
+    }
+
+    let start = dts[0] || null;
+    let end = dts[1] || null;
+    if (start && end && start.getTime() > end.getTime()) {
+      const tmp = start;
+      start = end;
+      end = tmp;
+    }
+
+    const reqM = s.match(/[:：)]\s*(\d+)\s*回の乗車/) || s.match(/(\d+)\s*回の乗車/);
+    const requiredTrips = reqM ? Number(reqM[1]) : null;
+    const lvlM = s.match(/レベル\s*(\d+)/i);
+    const level = lvlM ? Number(lvlM[1]) : null;
+
+    let achieved = null;
+    if (/達成しました|達成\b/.test(s)) achieved = true;
+    if (/未達|達成できません|達成できな/.test(s)) achieved = false;
+
+    return {
+      start,
+      end,
+      requiredTrips: Number.isFinite(requiredTrips) ? requiredTrips : null,
+      level: Number.isFinite(level) ? level : null,
+      achieved,
+      raw: s,
+    };
+  };
+
+  const questAmountFromPromoEvent = (e) => {
+    if (!e || e.kind !== 'promo') return 0;
+    const qAmt = Number(e.questAmount || 0);
+    if (Number.isFinite(qAmt) && qAmt > 0) return qAmt;
+    const note = (e.note || '').toString();
+    if (note && /クエスト|quest/i.test(note)) return Number(e.amount || 0);
+    return 0;
+  };
+
+  const questKeyFrom = (info, note, fallbackTime) => {
+    const st = info && info.start ? info.start.getTime() : null;
+    const en = info && info.end ? info.end.getTime() : null;
+    const req = info && info.requiredTrips != null ? info.requiredTrips : '';
+    const lv = info && info.level != null ? info.level : '';
+    if (st && en) return `q:${st}-${en}:${req}:${lv}`;
+    const s = (note || '').toString().trim();
+    if (s) return `qnote:${s.slice(0, 120)}`;
+    if (fallbackTime) return `qtime:${fallbackTime.getTime()}`;
+    return 'q:unknown';
+  };
+
+
+
+  const lowerBound = (arr, x) => {
+    let lo = 0;
+    let hi = arr.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (arr[mid] < x) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+
+  const getTripTimeMsSortedForQuest = () => {
+    const includeFailed = !!(toggleFailed && toggleFailed.checked);
+    const size = state.tripsByRideId ? state.tripsByRideId.size : 0;
+    const key = `${includeFailed}:${size}`;
+    if (state.questTripMsCache && state.questTripMsCache.key === key) return state.questTripMsCache.arr;
+
+    const arr = [];
+    if (state.tripsByRideId) {
+      for (const t of state.tripsByRideId.values()) {
+        if (!includeFailed) {
+          const st = (t.status || '').toString().toLowerCase();
+          if (st && st !== 'completed') continue;
+        }
+        const dt = t.requestTime || t.dropoffTime;
+        if (!dt) continue;
+        arr.push(dt.getTime());
+      }
+    }
+    arr.sort((a, b) => a - b);
+    state.questTripMsCache = { key, arr };
+    return arr;
+  };
+
+  const countTripsInWindow = (arr, startMs, endMs) => {
+    if (!arr || !arr.length) return 0;
+    if (startMs === null || startMs === undefined) return 0;
+    if (endMs === null || endMs === undefined) return 0;
+    const a = lowerBound(arr, startMs);
+    const b = lowerBound(arr, endMs);
+    return Math.max(0, b - a);
+  };
+
+  const summarizeQuest = (g, note) => {
+    const parts = [];
+    if (g.level != null) parts.push(`Lv${g.level}`);
+    if (g.requiredTrips != null) parts.push(`${g.requiredTrips}回`);
+    if (g.achieved === true) parts.push('達成');
+    if (g.achieved === false) parts.push('未達');
+    if (parts.length) return parts.join(' / ');
+    const s = (note || '').toString().trim();
+    return s ? s.slice(0, 60) : '';
+  };
+
+  const renderQuests = (eventsFiltered) => {
+    if (!questDetails || !questTbody || !questMeta) return;
+
+    questTbody.innerHTML = '';
+    questMeta.textContent = '';
+    if (questBadge) questBadge.textContent = '0';
+
+    const questLines = (eventsFiltered || []).filter(e => e.kind === 'promo' && questAmountFromPromoEvent(e) > 0);
+    const has = questLines.length > 0;
+    questDetails.style.display = has ? '' : 'none';
+    if (!has) return;
+
+    const groups = new Map();
+    let questSum = 0;
+    let parsedOk = 0;
+
+    for (const e of questLines) {
+      const qAmt = questAmountFromPromoEvent(e);
+      questSum += qAmt;
+      const info = parseQuestNote(e.note || '');
+      if (info && info.start && info.end) parsedOk++;
+      const key = questKeyFrom(info, e.note || '', e.time || null);
+
+      const g = groups.get(key) || {
+        key,
+        start: info && info.start ? info.start : null,
+        end: info && info.end ? info.end : null,
+        requiredTrips: info ? info.requiredTrips : null,
+        level: info ? info.level : null,
+        achieved: info ? info.achieved : null,
+        amount: 0,
+        notes: [],
+        txnIds: [],
+        payTimes: [],
+      };
+
+      g.amount += qAmt;
+      if (e.note) g.notes.push(e.note);
+      if (e.txnIds && e.txnIds.length) g.txnIds.push(...e.txnIds);
+      if (e.time) g.payTimes.push(e.time);
+
+      if (!g.start && info && info.start) g.start = info.start;
+      if (!g.end && info && info.end) g.end = info.end;
+      if (g.requiredTrips == null && info && info.requiredTrips != null) g.requiredTrips = info.requiredTrips;
+      if (g.level == null && info && info.level != null) g.level = info.level;
+      if (g.achieved == null && info && info.achieved != null) g.achieved = info.achieved;
+
+      groups.set(key, g);
+    }
+
+    const tripMsArr = getTripTimeMsSortedForQuest();
+    const items = [...groups.values()];
+    for (const g of items) {
+      if (g.start && g.end) g.actualTrips = countTripsInWindow(tripMsArr, g.start.getTime(), g.end.getTime());
+      else g.actualTrips = null;
+    }
+
+    items.sort((a, b) => {
+      const as = a.start ? a.start.getTime() : (a.payTimes[0] ? a.payTimes[0].getTime() : 0);
+      const bs = b.start ? b.start.getTime() : (b.payTimes[0] ? b.payTimes[0].getTime() : 0);
+      return as - bs;
+    });
+
+    if (questBadge) questBadge.textContent = items.length.toLocaleString('ja-JP');
+
+    const metaParts = [];
+    metaParts.push(`表示期間内: クエスト ${fmtYen(questSum)} / グループ ${items.length.toLocaleString('ja-JP')} / 支払行 ${questLines.length.toLocaleString('ja-JP')}`);
+    if (parsedOk) metaParts.push(`期間解析 ${parsedOk.toLocaleString('ja-JP')}件`);
+    questMeta.textContent = metaParts.join(' / ');
+
+    const MAX = 200;
+    const frag = document.createDocumentFragment();
+
+    for (const g of items.slice(0, MAX)) {
+      const tr = document.createElement('tr');
+
+      const tdPeriod = document.createElement('td');
+      tdPeriod.textContent = (g.start && g.end)
+        ? `${mdHm(g.start)}～${mdHm(g.end)}`
+        : (g.payTimes[0] ? ymdHm(g.payTimes[0]) : '');
+      tr.appendChild(tdPeriod);
+
+      const tdReq = document.createElement('td');
+      tdReq.className = 'num';
+      tdReq.textContent = (g.requiredTrips != null) ? String(g.requiredTrips) : '-';
+      tr.appendChild(tdReq);
+
+      const tdAct = document.createElement('td');
+      tdAct.className = 'num';
+      tdAct.textContent = (g.actualTrips != null) ? String(g.actualTrips) : '-';
+      tr.appendChild(tdAct);
+
+      const tdAmt = document.createElement('td');
+      tdAmt.className = 'num';
+      tdAmt.textContent = fmtYen(g.amount || 0);
+      tr.appendChild(tdAmt);
+
+      const tdNote = document.createElement('td');
+      const note0 = (g.notes && g.notes.length) ? g.notes[0] : '';
+      tdNote.textContent = summarizeQuest(g, note0);
+      tdNote.title = note0 || '';
+      tr.appendChild(tdNote);
+
+      const tipLines = [];
+      if (g.start && g.end) tipLines.push(`期間: ${ymdHm(g.start)}～${ymdHm(g.end)}`);
+      if (g.requiredTrips != null) tipLines.push(`必要回数: ${g.requiredTrips}`);
+      if (g.actualTrips != null) tipLines.push(`実配達: ${g.actualTrips}`);
+      if (g.level != null) tipLines.push(`レベル: ${g.level}`);
+      if (g.achieved === true) tipLines.push('達成: はい');
+      if (g.achieved === false) tipLines.push('達成: いいえ');
+      tipLines.push(`獲得額: ${fmtYen(g.amount || 0)}`);
+      tr.title = tipLines.join('\n');
+
+      tr.addEventListener('click', () => {
+        const title = 'クエスト';
+        const shown = tipLines.join('\n');
+        const rawLines = [
+          `txnIds: ${(g.txnIds || []).join(',')}`,
+          `notes: ${(g.notes || []).join(' / ')}`,
+        ];
+        openRawModal({ title, shown, raw: rawLines.join('\n') });
+      });
+
+      frag.appendChild(tr);
+    }
+
+    questTbody.appendChild(frag);
+
+    if (items.length > MAX) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 5;
+      td.className = 'muted small';
+      td.textContent = `表示は先頭${MAX.toLocaleString('ja-JP')}件まで（以降省略）`;
+      tr.appendChild(td);
+      questTbody.appendChild(tr);
+    }
+  };
+  if (routeZipOnly) {
+    routeZipOnly.checked = !!state.routeZipOnly;
+    routeZipOnly.addEventListener('change', () => {
+      state.routeZipOnly = !!routeZipOnly.checked;
+      refreshAll();
+    });
+  }
+// ====== Main refresh ======
   const refreshAll = () => {
-    ensureChartViewportDefaults();
     const eventsAll = buildEvents();
+    state.dataMinBD = getMinBusinessDate(eventsAll);
+    state.dataMaxBD = getMaxBusinessDate(eventsAll);
+    ensureChartViewportDefaults();
     const rangeKey = state.lastRange || 'week';
     updatePeriodUI(eventsAll);
 
@@ -2209,6 +3853,9 @@ const formatHM = (minutes) => {
     const activeInfo = updateStats(events);
     updateChart(events, activeInfo);
     renderDetails(events);
+    renderDailyRoute(eventsAll);
+    renderCancels(eventsAll);
+    renderQuests(events);
     updateRankUI();
     renderRankings(events);
   };
@@ -2306,6 +3953,49 @@ const setActiveRange = (rangeKey) => {
   state.dayHourlyIncludePromo = !!toggleHourlyPromo.checked;
 
   // ===== Chart viewport buttons (no plugin dependency) =====
+  const animateViewport = (targetMin, targetMax, durationMs = 180) => {
+    if (!state.chart) return;
+    const b = getRangeBoundsMs();
+    if (!b) return;
+
+    let fromMin = state.chart.options.scales.x.min ?? b.minMs;
+    let fromMax = state.chart.options.scales.x.max ?? b.maxMs;
+    fromMin = (typeof fromMin === 'number') ? fromMin : new Date(fromMin).getTime();
+    fromMax = (typeof fromMax === 'number') ? fromMax : new Date(fromMax).getTime();
+
+    const minSpan = getMinSpanX(state.chart);
+    const span = Math.max(minSpan, targetMax - targetMin);
+    let min = clamp(targetMin, b.minMs, b.maxMs - span);
+    let max = min + span;
+
+    const token = (state._viewportAnimToken = (state._viewportAnimToken || 0) + 1);
+    const t0 = performance.now();
+    const easeInOutQuad = (t) => (t < 0.5) ? (2 * t * t) : (1 - Math.pow(-2 * t + 2, 2) / 2);
+
+    const step = (now) => {
+      if (state._viewportAnimToken !== token) return;
+      const p = Math.min(1, (now - t0) / durationMs);
+      const e = easeInOutQuad(p);
+
+      state.chartViewEnabled = true;
+      state.chartViewMin = fromMin + (min - fromMin) * e;
+      state.chartViewMax = fromMax + (max - fromMax) * e;
+
+      applyChartViewport(state.chart);
+      try { state.chart.update('none'); } catch {}
+
+      if (p < 1) requestAnimationFrame(step);
+      else {
+        state.chartViewMin = min;
+        state.chartViewMax = max;
+        applyChartViewport(state.chart);
+        try { state.chart.update('none'); } catch {}
+      }
+    };
+
+    requestAnimationFrame(step);
+  };
+
   const zoomChart = (factor) => {
     if (!state.chart) return;
     const b = getRangeBoundsMs();
@@ -2316,24 +4006,23 @@ const setActiveRange = (rangeKey) => {
     curMin = typeof curMin === 'number' ? curMin : new Date(curMin).getTime();
     curMax = typeof curMax === 'number' ? curMax : new Date(curMax).getTime();
 
-    const center = (curMin + curMax) / 2;
-    const span = Math.max(60*1000, (curMax - curMin) * factor);
+    const minSpan = getMinSpanX(state.chart);
+    const span = Math.max(minSpan, (curMax - curMin) * factor);
 
     const fullSpan = b.maxMs - b.minMs;
     const clampedSpan = Math.min(span, fullSpan);
 
-    let min = center - clampedSpan / 2;
-    let max = center + clampedSpan / 2;
-    if (min < b.minMs) { max += (b.minMs - min); min = b.minMs; }
-    if (max > b.maxMs) { min -= (max - b.maxMs); max = b.maxMs; }
+    // Anchor zoom at the left edge (current min), unless clamped by range bounds.
+    let min = curMin;
+    let max = min + clampedSpan;
+
+    if (min < b.minMs) { min = b.minMs; max = min + clampedSpan; }
+    if (max > b.maxMs) { max = b.maxMs; min = max - clampedSpan; }
+
     min = clamp(min, b.minMs, b.maxMs - clampedSpan);
     max = min + clampedSpan;
 
-    state.chartViewEnabled = true;
-    state.chartViewMin = min;
-    state.chartViewMax = max;
-    applyChartViewport(state.chart);
-    try { state.chart.update('none'); } catch {}
+    animateViewport(min, max);
   };
 
   const panChart = (dir) => {
@@ -2346,7 +4035,8 @@ const setActiveRange = (rangeKey) => {
     curMin = typeof curMin === 'number' ? curMin : new Date(curMin).getTime();
     curMax = typeof curMax === 'number' ? curMax : new Date(curMax).getTime();
 
-    const span = Math.max(60*1000, curMax - curMin);
+    const minSpan = getMinSpanX(state.chart);
+    const span = Math.max(minSpan, curMax - curMin);
     const delta = span * 0.2 * dir;
 
     let min = curMin + delta;
@@ -2356,11 +4046,7 @@ const setActiveRange = (rangeKey) => {
     min = clamp(min, b.minMs, b.maxMs - span);
     max = min + span;
 
-    state.chartViewEnabled = true;
-    state.chartViewMin = min;
-    state.chartViewMax = max;
-    applyChartViewport(state.chart);
-    try { state.chart.update('none'); } catch {}
+    animateViewport(min, max);
   };
 
   if (btnChartZoomIn) btnChartZoomIn.addEventListener('click', () => zoomChart(0.7));
@@ -2382,7 +4068,11 @@ const setActiveRange = (rangeKey) => {
     state.tripsByRideId.clear();
     state.periodStartBD = null;
     state.periodEndBD = null;
+    state.ingestTotals = makeEmptyIngestTotals();
+    state.qualitySnapshot = null;
     loadStatus.textContent = '未読み込み';
+    computeQualitySnapshot();
+    renderQualitySnapshot();
     refreshAll();
   });
 
@@ -2540,6 +4230,10 @@ const setActiveRange = (rangeKey) => {
     zipDictLoader.addEventListener('change', () => {
       const f = zipDictLoader.files && zipDictLoader.files[0];
       if (!f) return;
+
+      const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      state.zipDictStats = { status: 'loading', source: 'file', rows: 0, loadMs: 0, error: '' };
+
       setZipStatus('読み込み中...');
       Papa.parse(f, {
         header: false,
@@ -2547,23 +4241,36 @@ const setActiveRange = (rangeKey) => {
         worker: true,
         complete: (res) => {
           try {
-            state.zipDict = buildZipDictFromRows(res.data || []);
+            const map = buildZipDictFromRows(res.data || []);
+            state.zipDict = map;
             state.zipDictReady = true;
-            setZipStatus('読み込み済み');
+
+            const t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            state.zipDictStats = { status: 'ready', source: 'file', rows: (res.data || []).length, loadMs: Math.round(t1 - t0), error: '' };
+
+            setZipStatus(`読み込み済み（${map.size.toLocaleString()}件）`);
+            computeQualitySnapshot();
+            renderQualitySnapshot();
             refreshAll();
           } catch (e) {
             console.error(e);
+            state.zipDictStats = { status: 'error', source: 'file', rows: 0, loadMs: 0, error: String(e && e.message ? e.message : e) };
             setZipStatus('読込失敗');
+            computeQualitySnapshot();
+            renderQualitySnapshot();
           }
         },
         error: (err) => {
           console.error(err);
+          state.zipDictStats = { status: 'error', source: 'file', rows: 0, loadMs: 0, error: String(err && err.message ? err.message : err) };
           setZipStatus('読込失敗');
+          computeQualitySnapshot();
+          renderQualitySnapshot();
         },
       });
     });
   }
-  if (state.zipDictReady) setZipStatus('読み込み済み');
+  if (state.zipDictReady) setZipStatus(`読み込み済み（${state.zipDict ? state.zipDict.size.toLocaleString() : '0'}件）`);
 
 
   // ===== Workday marker datepicker init =====
@@ -2617,5 +4324,7 @@ const setActiveRange = (rangeKey) => {
   initDatepicker();
 
   // ====== Init ======
+  computeQualitySnapshot();
+  renderQualitySnapshot();
   setActiveRange('month');
 })();

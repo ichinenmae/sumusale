@@ -143,12 +143,32 @@ a{color:var(--accent);}
 .stat__value{margin-top:6px; font-size:18px; font-weight:800;}
 
 .chartWrap{
-  height:340px;
+  /* Fixed height so the page layout stays stable.
+     The canvas is sized to the remaining space (excluding chartNav) via .chartCanvasWrap. */
+  height:360px;
   background:var(--surface);
   border:1px solid var(--border);
   border-radius:14px;
   padding:10px;
+
+  /* Prevent x-axis labels from spilling outside and overlapping elements below.
+     Use flex so chartNav (buttons) takes its own height and the canvas fits the remaining space. */
+  display:flex;
+  flex-direction:column;
 }
+.chartWrap .chartNav{ flex:0 0 auto; }
+.chartCanvasWrap{
+  /* Chart.js measures the canvas parent's height; keep this as the sizing reference. */
+  flex:1 1 auto;
+  min-height:0;
+  position:relative;
+}
+.chartCanvasWrap #chart{
+  display:block;
+  width:100% !important;
+  height:100% !important;
+}
+
 
 .help{margin-top:10px;}
 .help summary{cursor:pointer; color:var(--muted);}
@@ -533,3 +553,71 @@ td.clickableCell:hover{background: rgba(120,120,120,.10);}
 
 /* Prevent horizontal overflow in grid children */
 .grid > *{min-width:0;}
+
+
+/* Data Quality */
+.qualityBox{
+  padding-top: 8px;
+  display: grid;
+  gap: 10px;
+}
+.qualityBlock{
+  border: 1px solid var(--grid);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.qualityTitle{
+  font-weight: 700;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.qualityLine{
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+
+.mapLink{ text-decoration: underline; }
+
+.routeLinks{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin:8px 0 12px;
+}
+
+.routeLinks .mapLink{
+  text-decoration:none;
+  padding:2px 8px;
+  border:1px solid var(--grid);
+  border-radius:999px;
+}
+
+.routeLinks .mapLink:hover{ text-decoration:underline; }
+
+
+/* routeDetails */
+.routeDetails{ margin-top:10px; border:1px solid #d0d0d0; border-radius:10px; padding:8px 10px; background:#fff; }
+.routeDetails > summary{ cursor:pointer; list-style:none; font-weight:700; padding:8px 10px; border-radius:8px; background:#f2f4f6; display:flex; align-items:center; gap:8px; }
+.routeDetails > summary::-webkit-details-marker{ display:none; }
+.routeDetails .routeBadge{ font-size:12px; padding:2px 6px; border-radius:999px; background:#e6f4ea; border:1px solid #c6e6cf; }
+.routeDetails .routeHint{ font-size:12px; font-weight:400; color:#666; }
+.routeDetails[open]{ box-shadow:0 1px 0 rgba(0,0,0,.05); }
+
+/* cancelDetails */
+.cancelDetails{ margin-top:10px; border:1px solid #d0d0d0; border-radius:10px; padding:8px 10px; background:#fff; }
+.cancelDetails > summary{ cursor:pointer; list-style:none; font-weight:700; padding:8px 10px; border-radius:8px; background:#f2f4f6; display:flex; align-items:center; gap:8px; }
+.cancelDetails > summary::-webkit-details-marker{ display:none; }
+.cancelDetails .cancelBadge{ font-size:12px; padding:2px 8px; border-radius:999px; background:#fff0f0; border:1px solid #f5c2c7; }
+.cancelDetails[open]{ box-shadow:0 1px 0 rgba(0,0,0,.05); }
+
+/* questDetails */
+.questDetails{ margin-top:10px; border:1px solid #d0d0d0; border-radius:10px; padding:8px 10px; background:#fff; }
+.questDetails > summary{ cursor:pointer; list-style:none; font-weight:700; padding:8px 10px; border-radius:8px; background:#f2f4f6; display:flex; align-items:center; gap:8px; }
+.questDetails > summary::-webkit-details-marker{ display:none; }
+.questDetails .questBadge{ font-size:12px; padding:2px 8px; border-radius:999px; background:#eef3ff; border:1px solid #c9d7ff; }
+.questDetails[open]{ box-shadow:0 1px 0 rgba(0,0,0,.05); }
+
+.routeLinks{ display:flex; flex-wrap:wrap; gap:8px; margin:8px 0; }

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>スムセル （smooth sales） 売上管理</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css" />
-  <link rel="stylesheet" href="styles.css?v=rev64" />
+	  <link rel="stylesheet" href="styles.css?v=rev88" />
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
@@ -40,7 +40,53 @@
       </div>
 
 <div class="dropzone__status" id="loadStatus">未読み込み</div>
+    
+    <section class="card" id="qualityCard">
+      <div class="card__header">
+        <h2>データ品質</h2>
+        <div class="muted small">読み込み状況・除外・紐付け・辞書</div>
+      </div>
+
+      <details>
+        <summary class="muted small">表示</summary>
+
+        <div class="qualityBox">
+          <div class="qualityBlock">
+            <div class="qualityTitle">payments_order</div>
+            <div class="qualityLine" id="qPayments1">-</div>
+            <div class="qualityLine" id="qPayments2"></div>
+          </div>
+
+          <div class="qualityBlock">
+            <div class="qualityTitle">trip_activity</div>
+            <div class="qualityLine" id="qTrips1">-</div>
+            <div class="qualityLine" id="qTrips2"></div>
+          </div>
+
+          <div class="qualityBlock">
+            <div class="qualityTitle">紐付け</div>
+            <div class="qualityLine" id="qJoin1">-</div>
+            <div class="qualityLine" id="qJoin2"></div>
+          </div>
+
+          <div class="qualityBlock" id="zipDictBox">
+            <div class="qualityTitle">郵便番号辞書</div>
+            <div class="qualityLine">
+              <button class="btn btn--secondary btn-subtle" id="zipDictLoadBtn" type="button">辞書を読み込む</button>
+              <input id="zipDictLoader" type="file" accept=".csv,text/csv" class="fileInputHidden" />
+              <span class="muted small" id="zipDictStatus">未読み込み</span>
+            </div>
+            <div class="muted small" id="zipDictHint" style="display:none;">file:// で開いている場合は辞書の自動取得が失敗することがあります。上のボタンから辞書ファイル（utf_ken_all.csv）を選択してください。</div>
+            <div class="qualityLine" id="qZip1"></div>
+            <div class="qualityLine" id="qZip2"></div>
+          </div>
+
+          <div class="muted small" id="qUpdatedAt"></div>
+        </div>
+      </details>
     </section>
+
+</section>
 
     <section class="grid">
       <section class="card" id="periodCard">
@@ -72,6 +118,7 @@
                 <option value="combined" selected>階段＋時間帯別（同時）</option>
                 <option value="step">階段（累積）のみ</option>
                 <option value="hourly">時間帯別（1時間）</option>
+                <option value="gantt">依頼→降車（ガント）</option>
               </select>
             </div>
             <div class="period__spacer"></div>
@@ -88,7 +135,7 @@
           </label>
           <label class="toggle">
             <input id="togglePromo" type="checkbox" checked />
-            <span>プロモーションを表示</span>
+            <span>プロモその他を表示</span>
           </label>
           <label class="toggle">
             <input id="toggleOmitIdle" type="checkbox" />
@@ -106,8 +153,13 @@
             <div class="stat__value" id="statBase">-</div>
           </div>
           <div class="stat">
-            <div class="stat__label">プロモーション</div>
+            <div class="stat__label">チップ</div>
+            <div class="stat__value" id="statTip">-</div>
+          </div>
+          <div class="stat">
+            <div class="stat__label">プロモその他</div>
             <div class="stat__value" id="statPromo">-</div>
+            <div class="stat__subvalue" id="statPromoBreakdown">-</div>
           </div>
           <div class="stat">
             <div class="stat__label">総売上</div>
@@ -145,7 +197,6 @@
           </label>
 </div>
 <div class="chartWrap">
-          
       <div class="chartNav" id="chartNav">
         <button type="button" class="btn" id="btnChartZoomIn">＋</button>
         <button type="button" class="btn" id="btnChartZoomOut">－</button>
@@ -154,8 +205,74 @@
         <button type="button" class="btn" id="btnChartReset">リセット</button>
       </div>
 
-<canvas id="chart" height="140"></canvas>
+      <!-- Canvas parent MUST exclude chartNav height.
+           Chart.js measures the canvas parent's height to size itself.
+           If chartNav is inside that parent, the canvas overflows and can overlap elements below. -->
+      <div class="chartCanvasWrap" id="chartCanvasWrap">
+        <canvas id="chart" height="140"></canvas>
+      </div>
         </div>
+
+        <details class="help routeDetails" id="routeDetails" style="display:none;" open>
+<summary><span class="routeTitle">日次ルート（概算）</span><span class="routeBadge">NEW</span><span class="routeHint">（クリックで開閉）</span></summary>
+          <div class="muted small" id="routeMeta"></div>
+          <label class="small muted" style="display:block; margin-top:6px;"><input type="checkbox" id="routeZipOnly"> 地図は郵便番号のみ（可能な場合）</label>
+          <div class="routeLinks" id="routeLinks"></div>
+          <div class="tableWrap">
+            <table class="table" id="routeTable">
+              <thead>
+                <tr>
+                  <th>依頼時間</th>
+                  <th>乗車場所（店舗名）</th>
+                  <th>降車時間</th>
+                  <th>降車場所</th>
+                  <th>Map</th>
+                </tr>
+              </thead>
+              <tbody id="routeTbody"></tbody>
+            </table>
+          </div>
+          <div class="muted small">注: 住所は短縮/郵便番号で概算表示。Mapリンクを押すとGoogleに地点が送信されます。</div>
+        </details>
+
+        <details class="help cancelDetails" id="cancelDetails" style="display:none;">
+<summary><span class="cancelTitle">キャンセル等（failed/キャンセル）</span><span class="cancelBadge" id="cancelBadge">0</span><span class="routeHint">（クリックで開閉）</span></summary>
+          <div class="muted small" id="cancelMeta"></div>
+          <div class="tableWrap">
+            <table class="table" id="cancelTable">
+              <thead>
+                <tr>
+                  <th>依頼時間</th>
+                  <th>ステータス</th>
+                  <th>乗車場所（店舗名）</th>
+                  <th>降車場所</th>
+                </tr>
+              </thead>
+              <tbody id="cancelTbody"></tbody>
+            </table>
+          </div>
+          <div class="muted small">注: completed以外のtrip_activityを一覧化。売上集計・ランキングには含めません。</div>
+        </details>
+
+        <details class="help questDetails" id="questDetails" style="display:none;">
+<summary><span class="questTitle">クエスト</span><span class="questBadge" id="questBadge">0</span><span class="routeHint">（クリックで開閉）</span></summary>
+          <div class="muted small" id="questMeta"></div>
+          <div class="tableWrap">
+            <table class="table" id="questTable">
+              <thead>
+                <tr>
+                  <th>期間</th>
+                  <th class="num">必要回数</th>
+                  <th class="num">実配達</th>
+                  <th class="num">獲得額</th>
+                  <th>備考</th>
+                </tr>
+              </thead>
+              <tbody id="questTbody"></tbody>
+            </table>
+          </div>
+          <div class="muted small">注: payments_order の rideId空欄のうち「クエスト」金額を集計。売上（プロモその他）自体の合計は変更しません。</div>
+        </details>
 
         <details class="help">
           <summary>集計ルール（4時切替など）</summary>
@@ -163,7 +280,7 @@
             <li class="muted"><b>ファイル名の目安</b>: <code>...-trip_activity-....csv</code> / <code>...-payments_order-....csv</code></li>
             <li>結合キー: <b>trip_activityの乗車UUID</b> と <b>payments_orderの乗車ID</b></li>
             <li>配達報酬: payments_orderで「乗車ID」がある行の <b>支払い額</b> 合計</li>
-            <li>プロモーション: payments_orderで「乗車ID」が空欄の行の <b>支払い額</b> 合計</li>
+            <li>プロモその他: payments_orderで「乗車ID」が空欄の行の <b>支払い額</b> 合計</li>
             <li>除外: payments_orderで <code>so.payout</code> を含む行は売上ではないため除外</li>
             <li>業務日付: <b>午前4:00</b> で日付切替</li>
             <li>週の開始: <b>月曜日</b></li>
@@ -226,6 +343,7 @@
                 <th data-sort="pickupAsc">乗車場所（店舗名）</th>
                 <th data-sort="dropoffAsc" class="dropoff-col">降車場所</th>
                 <th data-sort="zipAsc" class="num">降車場所郵便番号</th>
+                <th>Map</th>
               </tr>
             </thead>
             <tbody id="detailTbody"></tbody>
@@ -290,7 +408,7 @@
   </main>
 
   <footer class="footer muted small">
-    @ichinenmae / Ver 3.8.2 (rev64)</span>
+	    @ichinenmae / Ver 3.12.2 (rev88)</span>
   </footer>
 
   
@@ -317,7 +435,7 @@
     </div>
   
   <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
-  <script src="app.js?v=rev64"></script>
+	  <script src="app.js?v=rev88"></script>
 </div>
 
 </body>
