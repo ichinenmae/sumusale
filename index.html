@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>スムセル （smooth sales） 売上管理</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css" />
-	  <link rel="stylesheet" href="styles.css?v=rev88" />
+	  <link rel="stylesheet" href="styles.css?v=rev93" />
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
@@ -19,7 +19,12 @@
 <body>
   <header class="header">
     <div class="header__title">
-      <h1 class="appName">ス ム セ ル</h1>
+	  <div class="brand" aria-label="アプリ名">
+        <img id="brandImg" class="brandLogo" src="assets/sumusales.png" alt="スムセル （smooth sales）" loading="eager"
+             onload="this.style.display='block';document.getElementById('brandText').style.display='none';"
+             onerror="this.style.display='none';" style="display:none;" />
+        <h1 id="brandText" class="appName">ス ム セ ル</h1>
+      </div>
       <p class="muted">CSVはブラウザ内でのみ処理され、外部へ送信しません。</p>
     </div>
     <div class="header__actions">
@@ -301,6 +306,12 @@
             <div class="detailGroup__title">乗車場所・降車場所</div>
             <div class="detailGroup__body detailGroup__body--search">
               <div class="field"><label>乗車場所</label><input id="pickupSearchBox" class="input" placeholder="例) マクドナルド AND 川崎" /></div>
+              <div class="field field--span2">
+                <label class="toggle mini">
+                  <input id="togglePickupAddrSearch" type="checkbox" />
+                  <span>店舗住所も検索対象に含める</span>
+                </label>
+              </div>
               <div class="field"><label>降車場所</label><input id="dropoffSearchBox" class="input" placeholder="例) 川崎市 NOT 幸区" /></div>
             </div>
           </div>
@@ -314,6 +325,12 @@
               <div class="field"><label>時給換算（以下）</label><input id="fWageMax" type="number" class="input" placeholder="-" /></div>
               <div class="field"><label>配達時間（分）（以上）</label><input id="fDurMin" type="number" class="input" placeholder="-" /></div>
               <div class="field"><label>配達時間（分）（以下）</label><input id="fDurMax" type="number" class="input" placeholder="-" /></div>
+              <div class="field field--span2">
+                <label class="toggle mini">
+                  <input id="toggleTipOnly" type="checkbox" />
+                  <span>チップありのみ</span>
+                </label>
+              </div>
             </div>
           </div>
 
@@ -408,7 +425,7 @@
   </main>
 
   <footer class="footer muted small">
-	    @ichinenmae / Ver 3.12.2 (rev88)</span>
+	    @ichinenmae / Ver 3.13.2 (rev93)</span>
   </footer>
 
   
@@ -435,7 +452,7 @@
     </div>
   
   <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
-	  <script src="app.js?v=rev88"></script>
+	  <script src="app.js?v=rev93"></script>
 </div>
 
 </body>

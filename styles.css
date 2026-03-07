@@ -343,6 +343,7 @@ html[data-theme="sumureco"]{
 .detailGroup__body--filters .field{display:flex;flex-direction:column;gap:.25rem}
 .detailGroup__body--filters label{font-size:.85rem;color:var(--muted)}
 .detailGroup__body--filters .input{height:36px}
+.detailGroup__body--filters .field--span2{grid-column:1/-1}
 .detailGroup__body--actions{justify-content:flex-start}
 .detailGroup__body--actions .btn.small{padding:.5rem .9rem;border-radius:999px}
 .detailGroup__body--actions .select{min-width: 220px;}
@@ -360,6 +361,7 @@ html[data-theme="sumureco"]{
 .detailGroup__body--search .field{display:flex;flex-direction:column;gap:.25rem}
 .detailGroup__body--search label{font-size:.85rem;color:var(--muted)}
 .detailGroup__body--search .input{height:36px}
+.detailGroup__body--search .field--span2{grid-column:1/-1}
 @media (max-width: 1100px){
   .detailGroup__body--search{grid-template-columns: 1fr;}
 }
@@ -542,6 +544,18 @@ td.clickableCell:hover{background: rgba(120,120,120,.10);}
 }
 
 /* App name (header) */
+.brand{
+  display:flex;
+  align-items:flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+.brandLogo{
+  display:block;
+  height: clamp(44px, 6vw, 78px);
+  width: auto;
+  max-width: 100%;
+}
 .appName{
   margin: 0;
 
@@ -619,5 +633,21 @@ td.clickableCell:hover{background: rgba(120,120,120,.10);}
 .questDetails > summary::-webkit-details-marker{ display:none; }
 .questDetails .questBadge{ font-size:12px; padding:2px 8px; border-radius:999px; background:#eef3ff; border:1px solid #c9d7ff; }
 .questDetails[open]{ box-shadow:0 1px 0 rgba(0,0,0,.05); }
+
+.questRow{ border-left:6px solid transparent; }
+/* テーブル（border-collapse）では tr の border-left が出ないことがあるため、
+   行全体の視認性は JS 側の box-shadow（inset）と、ここでの背景付与で担保する */
+.questRow td{ background: var(--qbg, transparent); }
+.questMark{
+  display:inline-block;
+  font-size:12px;
+  font-weight:700;
+  line-height:1.2;
+  padding:2px 8px;
+  border-radius:999px;
+  border:1px solid #bbb;
+  margin-right:8px;
+  vertical-align:middle;
+}
 
 .routeLinks{ display:flex; flex-wrap:wrap; gap:8px; margin:8px 0; }

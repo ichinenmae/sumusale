@@ -44,6 +44,7 @@
   const statUnitWithPromo = document.getElementById('statUnitWithPromo');
 
   const pickupSearchBox = document.getElementById('pickupSearchBox');
+  const togglePickupAddrSearch = document.getElementById('togglePickupAddrSearch');
 
   // Raw modal elements (lazy lookup)
   const getRawModalEls = () => {
@@ -101,6 +102,7 @@
   const fWageMax = document.getElementById('fWageMax');
   const fDurMin = document.getElementById('fDurMin');
   const fDurMax = document.getElementById('fDurMax');
+  const toggleTipOnly = document.getElementById('toggleTipOnly');
   const btnClearDetailFilters = document.getElementById('btnClearDetailFilters');
   const toggleHideDropoff = document.getElementById('toggleHideDropoff');
   const dayViewSelect = document.getElementById('dayViewSelect');
@@ -682,7 +684,15 @@
 
   
 const buildPickupTarget = (r) => {
-  return [r.storeName || r.pickupDisplay || r.rawPickup || '', r.kind || ''].join(' ');
+  const name = (r.storeName || r.pickupDisplay || r.rawPickup || "").toString();
+  const kind = (r.kind || "").toString();
+  const useAddr = !!(togglePickupAddrSearch && togglePickupAddrSearch.checked);
+  if (!useAddr) return [name, kind].join(" ");
+  const shortAddr = (r.pickupAddrShort || "").toString();
+  const rawAddr = (r.rawPickup || "").toString();
+  const zip = (r.pickupZip || "").toString();
+  const zip2 = zip ? zip.replace(/-/g, "") : "";
+  return [name, shortAddr, zip, zip2, rawAddr, kind].join(" ");
 };
 const buildDropoffTarget = (r) => {
   return [r.dropoffDisplay || r.dropoffAddr || r.rawDropoff || '', r.kind || ''].join(' ');
@@ -2921,6 +2931,7 @@ const formatHM = (minutes) => {
   const renderDetails = (events) => {
     const qPickup = (pickupSearchBox && pickupSearchBox.value ? pickupSearchBox.value : '').toString().trim();
     const qDropoff = (dropoffSearchBox && dropoffSearchBox.value ? dropoffSearchBox.value : '').toString().trim();
+    const tipOnly = !!(toggleTipOnly && toggleTipOnly.checked);
     let rows = buildDetailRows(events);
 
     const num = (el) => {
@@ -2936,6 +2947,7 @@ const formatHM = (minutes) => {
     rows = rows.filter(r => {
       if (qPickup && !matchesQuery(buildPickupTarget(r), qPickup)) return false;
       if (qDropoff && !matchesQuery(buildDropoffTarget(r), qDropoff)) return false;
+      if (tipOnly && !(r.tipAmount && r.tipAmount > 0)) return false;
       if (amtMin !== null && r.amount < amtMin) return false;
       if (amtMax !== null && r.amount > amtMax) return false;
 
@@ -3051,6 +3063,7 @@ const formatHM = (minutes) => {
     if (rows.length > MAX) note.push(`表示 ${MAX.toLocaleString()}件（以降は省略）`);
     const qSummary = [qPickup && ('乗車:' + qPickup), qDropoff && ('降車:' + qDropoff)].filter(Boolean).join(' / ');
     if (qSummary) note.push(`検索: "${qSummary}"`);
+    if (tipOnly) note.push('チップありのみ');
     if (state.hideDropoff) note.push('降車場所: 非表示');
     detailNote.textContent = note.join(' / ');
   };
@@ -3659,19 +3672,25 @@ const formatHM = (minutes) => {
     if (state.questTripMsCache && state.questTripMsCache.key === key) return state.questTripMsCache.arr;
 
     const arr = [];
+    let fallbackDropoff = 0; // requestTime欠損時にdropoffTimeを代用した件数
+    let missingBoth = 0;
+
     if (state.tripsByRideId) {
       for (const t of state.tripsByRideId.values()) {
         if (!includeFailed) {
           const st = (t.status || '').toString().toLowerCase();
           if (st && st !== 'completed') continue;
         }
-        const dt = t.requestTime || t.dropoffTime;
-        if (!dt) continue;
+        // クエストのカウントは「乗車（依頼）基準」。原則 requestTime を使用。
+        let dt = t.requestTime || null;
+        if (!dt && t.dropoffTime) { dt = t.dropoffTime; fallbackDropoff++; }
+        if (!dt) { missingBoth++; continue; }
         arr.push(dt.getTime());
       }
     }
+
     arr.sort((a, b) => a - b);
-    state.questTripMsCache = { key, arr };
+    state.questTripMsCache = { key, arr, fallbackDropoff, missingBoth };
     return arr;
   };
 
@@ -3693,6 +3712,19 @@ const formatHM = (minutes) => {
     if (parts.length) return parts.join(' / ');
     const s = (note || '').toString().trim();
     return s ? s.slice(0, 60) : '';
+  };
+
+  const questColorForKey = (key) => {
+    // 地味めの配色。キーから決定的に色を決める。
+    const s = (key || '').toString();
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    const hue = h % 360;
+    return {
+      bg: `hsl(${hue} 28% 96%)`,
+      fg: `hsl(${hue} 45% 22%)`,
+      border: `hsl(${hue} 40% 40%)`,
+    };
   };
 
   const renderQuests = (eventsFiltered) => {
@@ -3763,18 +3795,40 @@ const formatHM = (minutes) => {
     const metaParts = [];
     metaParts.push(`表示期間内: クエスト ${fmtYen(questSum)} / グループ ${items.length.toLocaleString('ja-JP')} / 支払行 ${questLines.length.toLocaleString('ja-JP')}`);
     if (parsedOk) metaParts.push(`期間解析 ${parsedOk.toLocaleString('ja-JP')}件`);
+    metaParts.push('カウント: 依頼時刻基準');
+    const qCache = state.questTripMsCache;
+    if (qCache && qCache.fallbackDropoff) metaParts.push(`依頼時刻欠損 ${qCache.fallbackDropoff.toLocaleString('ja-JP')}件は降車で代用`);
+    if (qCache && qCache.missingBoth) metaParts.push(`時刻欠損で除外 ${qCache.missingBoth.toLocaleString('ja-JP')}件`);
     questMeta.textContent = metaParts.join(' / ');
 
     const MAX = 200;
     const frag = document.createDocumentFragment();
 
+    let qIndex = 0;
     for (const g of items.slice(0, MAX)) {
       const tr = document.createElement('tr');
+      const qNum = qIndex + 1;
+      const qCol = questColorForKey(g.key || String(qNum));
+      tr.classList.add('questRow');
+      // border-collapse の影響で tr の border-left が出ないケースがあるため、
+      // inset の box-shadow と行背景（CSS変数）で視覚的に区別する。
+      tr.style.setProperty('--qbg', qCol.bg);
+      tr.style.boxShadow = `inset 6px 0 0 ${qCol.border}`;
 
       const tdPeriod = document.createElement('td');
-      tdPeriod.textContent = (g.start && g.end)
+      const qMark = document.createElement('span');
+      qMark.className = 'questMark';
+      qMark.textContent = `Q${qNum}`;
+      qMark.style.background = qCol.border;
+      qMark.style.color = '#fff';
+      qMark.style.borderColor = qCol.border;
+      tdPeriod.appendChild(qMark);
+
+      const qPeriodText = document.createElement('span');
+      qPeriodText.textContent = (g.start && g.end)
         ? `${mdHm(g.start)}～${mdHm(g.end)}`
         : (g.payTimes[0] ? ymdHm(g.payTimes[0]) : '');
+      tdPeriod.appendChild(qPeriodText);
       tr.appendChild(tdPeriod);
 
       const tdReq = document.createElement('td');
@@ -3818,6 +3872,7 @@ const formatHM = (minutes) => {
         openRawModal({ title, shown, raw: rawLines.join('\n') });
       });
 
+      qIndex++;
       frag.appendChild(tr);
     }
 
@@ -3941,7 +3996,9 @@ const setActiveRange = (rangeKey) => {
   toggleOmitIdle.addEventListener('change', () => refreshAll());
   toggleFailed.addEventListener('change', () => refreshAll());
   pickupSearchBox.addEventListener('input', () => refreshAll());
+  if (togglePickupAddrSearch) togglePickupAddrSearch.addEventListener('change', () => refreshAll());
   if (dropoffSearchBox) dropoffSearchBox.addEventListener('input', () => refreshAll());
+  if (toggleTipOnly) toggleTipOnly.addEventListener('change', () => refreshAll());
 
   toggleHourlyPromo.addEventListener('change', () => {
     // hourly chart aggregation (promo include/exclude)
@@ -4117,6 +4174,7 @@ const setActiveRange = (rangeKey) => {
   if (btnClearDetailFilters) {
     btnClearDetailFilters.addEventListener('click', () => {
       if (pickupSearchBox) pickupSearchBox.value = '';
+      if (togglePickupAddrSearch) togglePickupAddrSearch.checked = false;
       if (dropoffSearchBox) dropoffSearchBox.value = '';
       if (fAmtMin) fAmtMin.value = '';
       if (fAmtMax) fAmtMax.value = '';
@@ -4124,6 +4182,7 @@ const setActiveRange = (rangeKey) => {
       if (fWageMax) fWageMax.value = '';
       if (fDurMin) fDurMin.value = '';
       if (fDurMax) fDurMax.value = '';
+      if (toggleTipOnly) toggleTipOnly.checked = false;
       refreshAll();
     });
   }
